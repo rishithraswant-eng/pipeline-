@@ -1,0 +1,22 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+
+# Downloaded ML Models (Phase 3)
+backend/models/distilbert_expertise/*
+!backend/models/distilbert_expertise/train.py
+backend/models/bert_attack/*
+
+# Ignore cached downloads but keep the model directories empty (or with placeholder code)
+backend/output/*
+!backend/output/.keep

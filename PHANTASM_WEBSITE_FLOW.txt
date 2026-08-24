@@ -1,0 +1,808 @@
+================================================================================
+                    PHANTASM — COMPLETE WEBSITE FLOW DOCUMENT
+                     Full User Journey & Screen-by-Screen Spec
+================================================================================
+  Document Version: 1.0
+  For: Full Team Reference
+  Hackathon: SIH 2026 Internal | Track: Blockchain & Cybersecurity
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OVERVIEW — WHAT THE WEBSITE IS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHANTASM is a single-page React application (SPA) served on localhost:3000.
+It is a real-time SOC (Security Operations Centre) dashboard — not a
+multi-page website. There is no public marketing site, no login page,
+no navigation menu. The entire product is one full-viewport screen that
+comes alive when a session starts.
+
+TOTAL SCREENS: 4 states of the same single page
+  State 1 — IDLE        (system running, no active session)
+  State 2 — ACTIVE      (session live, attacker inside ShadowMesh)
+  State 3 — DOSSIER     (session ended, dossier generating/ready)
+  State 4 — HISTORY     (side drawer showing past sessions)
+
+The page never navigates away. State transitions are animated in-place.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SCREEN 1 — IDLE STATE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WHEN SHOWN:
+  App first loads. No session active. System online but waiting.
+
+WHAT THE USER SEES:
+
+HEADER BAR:
+  Left:   PHANTASM wordmark + "Cognitive Honeypot System" tagline
+  Centre: Grey pulsing dot + "AWAITING CONNECTION" status chip
+          Session timer frozen at "00:00:00"
+          Command count: "0 COMMANDS"
+  Right:  Engagement score: "—" (dash, no data)
+          [▶ START SESSION] button (green border, active)
+          [■ END SESSION] button (grey, disabled)
+          [⬇ GENERATE DOSSIER] button (grey, disabled)
+
+CENTRE GRAPH PANEL:
+  The network graph shows the ShadowMesh topology in its DEFAULT state —
+  all 15 base fake hosts are visible but rendered at 40% opacity (dimmed).
+  No nodes are pulsing. No edges are animated. The force simulation is
+  frozen (nodes do not drift).
+  Overlaid text in centre of graph (Inter 500, 14px, var(--text-muted)):
+    "SHADOWMESH ONLINE — AWAITING FIRST PROBE"
+  Below that, a small amber dot pulses slowly (1 per 3 seconds).
+
+LEFT PANEL — COMMAND FEED:
+  Header: "LIVE COMMAND FEED" | "0 commands"
+  Body: Empty state — centred message:
+    Icon: terminal icon (24px, amber, 30% opacity)
+    Text: "No commands received"
+    Subtext: "ShadowMesh is listening on 192.168.10.0/24"
+    (JetBrains Mono, 12px, var(--text-muted))
+
+RIGHT PANEL — OPERATOR PROFILE:
+  Header: "OPERATOR PROFILE" | "—" badge (grey, no level yet)
+  All 4 profile sections shown but in empty/zero state:
+    Expertise gauge: needle at leftmost position (Script Kiddie)
+    Objective bars: all bars at 0%, greyed out
+    State indicator: "—" with muted text "No active session"
+    Attribution radar: empty chart with axis labels visible
+  Session stats grid:
+    Commands: 0  |  Techniques: 0
+    Engagement: —  |  Dwell: 00:00:00
+
+BOTTOM BAR:
+  Stress chart: flat line at zero (no data)
+  IOC indicators: "C2 IPs: 0 | Payloads: 0 | Assets: 0" (all grey)
+
+SYSTEM STATUS INDICATOR (bottom-right corner, 16px):
+  Three status dots:
+    ● ShadowMesh  GREEN — "Online"
+    ● MirrorTrap  GREEN — "Ready"
+    ● Redis       GREEN — "Connected"
+  If any are red: shown as red dot + service name
+
+USER ACTION FROM IDLE:
+  User does nothing — the dashboard waits for the first packet to hit
+  ShadowMesh. When it does, the system auto-transitions to ACTIVE state.
+  The [▶ START SESSION] button manually triggers session start for demo
+  purposes (sends a test packet to kickstart the state machine).
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TRANSITION: IDLE → ACTIVE (SESSION START SEQUENCE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TRIGGER: First packet received by ShadowMesh OR [▶ START SESSION] clicked.
+
+ANIMATION SEQUENCE (orchestrated, total ~2 seconds):
+
+T+0ms:
+  Header status chip: grey → green. Text: "SESSION ACTIVE"
+  Green dot begins its pulsing animation (1.5s cycle)
+
+T+100ms:
+  Session timer begins counting up from 00:00:00
+
+T+200ms:
+  Left panel border: gains amber accent glow (1px amber border animates in)
+  Right panel border: same
+
+T+300ms:
+  Graph panel: opacity 40% → 100% (all nodes brighten), duration 400ms
+
+T+400ms:
+  Graph overlay text fades out (opacity 1 → 0, 300ms)
+  New overlay text appears briefly: "SHADOWMESH ACTIVE — MONITORING"
+  (amber, centre, fades in 300ms, holds 1s, fades out 500ms)
+
+T+600ms:
+  Graph nodes begin their idle breathing animation — very subtle scale
+  pulse (1.0 → 1.05 → 1.0, 3s cycle, staggered per node so they don't
+  all pulse simultaneously)
+
+T+1000ms:
+  Session stats in right panel reset to zero and begin counting
+  Stress chart initialises with a flat baseline
+
+T+2000ms:
+  System fully active. All transitions complete.
+  Dashboard is in ACTIVE state.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SCREEN 2 — ACTIVE STATE (THE MAIN DEMO SCREEN)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WHEN SHOWN:
+  Session is live. Attacker is inside ShadowMesh.
+  This is the screen judges spend 90% of the demo watching.
+
+FULL SCREEN LAYOUT (1920×1080):
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ HEADER: [PHANTASM] [● SESSION ACTIVE] [00:47:23] [284 CMD] [2.3x] [■][⬇]│
+  ├───────────────┬─────────────────────────────────┬───────────────────────┤
+  │               │                                 │                       │
+  │  COMMAND FEED │      NETWORK GRAPH              │  OPERATOR PROFILE     │
+  │  (380px)      │      (D3 force-directed)        │  (360px)              │
+  │               │                                 │                       │
+  │  00:02:11     │    [host nodes pulsing,         │  [Expertise Gauge]    │
+  │  [T1046]RECON │     edges animating,            │  APT-Grade ████████   │
+  │  nmap -sV ... │     crown jewels glowing]       │                       │
+  │               │                                 │  [Objective Bars]     │
+  │  00:07:44     │                                 │  Data Exfil ████ 71%  │
+  │  [T1110]CRED  │                                 │                       │
+  │  net user ... │                                 │  [State: STRESSED]    │
+  │               │                                 │  ⚡ Since 00:31:14    │
+  │  00:14:29     │                                 │                       │
+  │  [T1078]CRED  │                                 │  [Attribution Radar]  │
+  │  Valid Accts  │                                 │  APT-36: 61%          │
+  │               │                                 │                       │
+  │  [scrolling]  │                                 │  [Session Stats]      │
+  │               │                                 │  284 | 11 | 2.3x |47m│
+  ├───────────────┴─────────────────────────────────┴───────────────────────┤
+  │ [STRESS INDEX: 2.1s] [━━━━━━━╱╲━━━━━━━━━━━━╱╲╱╲━━] [C2:2 | PAY:1 | A:3]│
+  └─────────────────────────────────────────────────────────────────────────┘
+
+REAL-TIME BEHAVIOURS DURING ACTIVE STATE:
+
+EVERY COMMAND RECEIVED:
+  1. New entry slides into bottom of command feed (translateY 8px → 0)
+  2. Command feed auto-scrolls to show newest entry
+  3. ATT&CK badge appears with colour matching tactic
+  4. Target host node in graph: transitions to probed state (amber pulse)
+  5. Stress chart: new data point added, line redraws
+  6. Header command counter increments with subtle number animation
+
+EVERY 5 COMMANDS (PROFILE UPDATE):
+  1. MirrorTrap publishes profile update via WebSocket
+  2. Expertise gauge needle sweeps to new position (600ms animation)
+  3. Objective bars animate to new percentages (400ms)
+  4. Session stats update (commands, techniques, dwell time)
+  5. Right panel briefly highlights (amber border glow flash, 300ms)
+
+WHEN HOST IS ACCESSED (authenticated connection):
+  1. Node colour transitions: amber (probed) → red (accessed)
+  2. Red glow appears on node
+  3. ⚠ icon overlays the node
+  4. An edge from the attacker's entry point to this host animates in
+     (dashed amber marching ants showing the lateral movement path)
+  5. "Assets Accessed" counter in bottom bar increments
+
+WHEN STRESS EVENT DETECTED (ICI acceleration):
+  1. State indicator in right panel transitions to STRESSED
+  2. Amber ⚡ icon pulses briefly
+  3. Stress chart: the line dips sharply (lower ICI = more stress on chart)
+  4. Red zone shading appears on stress chart below the baseline
+  5. Small callout box appears: "Stress onset detected — cadence +340%"
+
+WHEN HIGH ATTRIBUTION DETECTED (>60% APT overlap):
+  1. Attribution radar in right panel: data polygon turns red
+  2. Section border turns red with pulsing glow
+  3. Header briefly shows ⚠ amber chip: "HIGH ATTRIBUTION — APT-36"
+  4. Chip auto-dismisses after 5 seconds
+
+WHEN ADAPTIVE TRIGGER FIRES (crown jewel materialisation):
+  FULL SEQUENCE (described in UI/UX doc Section 4.6):
+  1. Amber glow appears at new node position
+  2. Node materialises with spring scale animation
+  3. Outer ripple ring fires
+  4. Node label slides in
+  5. New edges draw connecting to subnet
+  6. "CROWN JEWEL MATERIALIZED" text briefly overlays graph
+  7. Right panel profile section pulses amber
+
+WHEN C2 CALLBACK DETECTED:
+  1. Bottom bar IOC counter increments with red flash
+  2. New entry in command feed tagged [T1041 EXFIL] with deep red background
+  3. Small red banner briefly appears at top of graph:
+     "C2 CALLBACK DETECTED — 45.xxx.xxx.12:443"
+     (slides down from top edge, holds 4 seconds, slides back up)
+
+USER INTERACTIONS IN ACTIVE STATE:
+
+  HOVER OVER GRAPH NODE:
+    Tooltip appears showing: hostname, IP, OS, open ports, status, last probed
+    Other nodes dim to 50% opacity (focus on hovered node)
+    Connected edges highlight
+
+  CLICK GRAPH NODE:
+    Node detail drawer slides in from right edge of graph panel (240px wide)
+    Drawer content:
+      - Full hostname (large, amber)
+      - IP address (mono)
+      - Declared OS and version
+      - All emulated services with ports
+      - Interaction log: list of attacker commands targeting this host
+      - Current status badge
+    Close: click X in drawer or click outside
+
+  CLICK ATT&CK BADGE IN COMMAND FEED:
+    Small tooltip appears showing:
+      - Full technique name
+      - Tactic category
+      - One-line description of what this technique means
+      - Confidence score
+    Auto-dismisses after 4 seconds
+
+  CLICK [■ END SESSION] BUTTON:
+    Confirmation micro-modal appears (does not block dashboard):
+      Small card (240px) sliding down from header:
+        "End session and generate dossier?"
+        [Confirm] [Cancel]
+      If Confirm: transition to DOSSIER state
+      If Cancel: modal slides back up, session continues
+
+  DEMO CONTROLS (bottom-left of graph, small buttons):
+    [Force APT Trigger]    — manually fires crown jewel materialisation
+    [Force Stress Event]   — manually triggers stress state in profile
+    [End Session]          — immediately ends session, triggers dossier
+    These are failsafes for demo. Styled as small, unobtrusive text links.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TRANSITION: ACTIVE → DOSSIER (SESSION END SEQUENCE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TRIGGER: Attacker disconnects, [■ End Session] confirmed, or demo control fired.
+
+ANIMATION SEQUENCE:
+
+T+0ms:
+  Header status chip: "SESSION ACTIVE" → "SESSION ENDED"
+  Chip colour: green → amber
+  Session timer freezes at final time
+
+T+200ms:
+  All probed/accessed nodes in graph: pulse animation stops
+  Nodes hold their final colour (probed = amber, accessed = red)
+  Graph force simulation freezes — network becomes a static record
+  Graph opacity dims slightly to 70% — it is now history, not live
+
+T+400ms:
+  Left panel command feed: scroll stops, newest commands visible
+  A thin amber line appears at the bottom of the feed: "SESSION ENDED"
+  timestamp + total command count
+
+T+500ms:
+  Right panel: "GENERATING DOSSIER..." spinner appears below session stats
+  [⬇ GENERATE DOSSIER] button: shows spinning icon + "GENERATING..."
+
+T+500ms–60000ms:
+  Progress indicator in dossier button:
+  A subtle progress bar fills the button background from left to right
+  over the estimated 60-second generation window
+  Text shows: "GENERATING... 0%" → "GENERATING... 45%" → etc.
+  Progress is estimated (not real — LLM generation doesn't report %)
+  But the visual is reassuring and keeps judges engaged
+
+T+generation_complete:
+  Dossier notification slides in from bottom-right (see UI/UX spec 4.4)
+  [⬇ GENERATE DOSSIER] button: turns green, text "DOSSIER READY"
+  Notification shows: session summary + [VIEW PDF] button
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SCREEN 3 — DOSSIER STATE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WHEN SHOWN:
+  Session has ended. Dossier is ready. Judge is about to receive the output.
+
+WHAT CHANGES FROM ACTIVE STATE:
+
+HEADER:
+  Status chip: amber "SESSION ENDED — DOSSIER READY"
+  Timer: frozen at final time (e.g., "00:47:23")
+  All session stats frozen at final values
+  [▶ START SESSION] re-enables (green) — for running another session
+  [⬇ GENERATE DOSSIER] now shows "✓ DOSSIER READY" in green
+
+GRAPH PANEL:
+  Network frozen. All nodes at final state.
+  New overlay in top-right corner of graph:
+    Small legend box showing:
+      ● Amber = Probed hosts (count)
+      ● Red = Accessed hosts (count)
+      ● Yellow = Crown jewel nodes (count)
+      ● Grey = Untouched hosts (count)
+  This makes the graph legible as a record at a glance.
+
+RIGHT PANEL — PROFILE SUMMARY MODE:
+  The live-updating sections are now static, showing FINAL session values.
+  A new "SESSION SUMMARY" section appears at bottom of panel:
+    Condensed single-view of key findings:
+    "APT-Grade operator | Data Exfiltration | 61% APT-36"
+    "11 techniques | 47 min 23 sec dwell time"
+    "3 assets accessed | 2 C2 callbacks captured"
+    All in amber monospace, professional layout
+
+DOSSIER PANEL (slides in FROM RIGHT, 480px wide, overlaying right panel):
+  This is a preview of the generated dossier in the browser.
+  Not the full PDF — a structured summary view.
+
+  DOSSIER PREVIEW CONTENT:
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │ PHANTASM THREAT INTELLIGENCE DOSSIER          CONFIDENTIAL   │
+  │ Session ID: PH-2026-0847-APT                                 │
+  │ ─────────────────────────────────────────────────────────── │
+  │ SESSION OVERVIEW                                             │
+  │ Duration: 47:23 | Commands: 284 | Engagement: 2.3x baseline │
+  │                                                              │
+  │ OPERATOR PROFILE                                             │
+  │ Expertise:  APT-Grade (94%)                                  │
+  │ Objective:  Data Exfiltration (71%)                          │
+  │ State:      Stressed (onset 00:31:14)                        │
+  │ Attribution: APT-36 (61%) | Lazarus (23%)                    │
+  │                                                              │
+  │ TOP TECHNIQUES                                               │
+  │ T1046 Network Scanning | T1003 LSASS Dump | T1041 Exfil C2  │
+  │                                                              │
+  │ ANALYST ASSESSMENT                                           │
+  │ "The operator demonstrated advanced familiarity with Active  │
+  │  Directory environments, moving directly to credential       │
+  │  dumping within 23 minutes of initial access — consistent   │
+  │  with operators who have conducted prior reconnaissance..."  │
+  │                                                              │
+  │ IOCs: 2 C2 IPs | 1 payload hash | 1 domain                 │
+  │                                                              │
+  │ [DOWNLOAD PDF]  [PRINT]  [COPY JSON]  [NEW SESSION]         │
+  └──────────────────────────────────────────────────────────────┘
+
+  Styling: dark theme matching dashboard — NOT white/light
+  Background: var(--bg-surface)
+  Section headers: amber, uppercase, 10px, tracked
+  Values: var(--text-primary), monospace where data
+
+  ANALYST ASSESSMENT section styled differently:
+    Background: rgba(245,158,11,0.05)
+    Left border: 2px solid var(--amber-ghost)
+    Text: italic, slightly lighter (var(--text-secondary))
+    Shows first 200 chars of narrative with "...read more in PDF" link
+
+BOTTOM BUTTONS IN DOSSIER PANEL:
+  [DOWNLOAD PDF] — primary, amber filled button
+    Click: triggers browser file download of the generated PDF
+    Hover: brighter amber, slight scale up (1.02)
+
+  [PRINT] — secondary, amber outlined
+    Click: opens browser print dialog with PDF loaded
+    This is the "physical prop" moment — print to hand to judge
+
+  [COPY JSON] — tertiary, muted outlined
+    Click: copies structured JSON dossier to clipboard
+    Shows brief "Copied!" tooltip for 2 seconds
+
+  [NEW SESSION] — ghost button, right-aligned
+    Click: returns to IDLE state, resets all data
+    Confirmation not required (demo flow should be fast to restart)
+
+CLOSING THE DOSSIER PANEL:
+  X button in panel top-right
+  Or press Escape
+  Panel slides back out to right
+  Dashboard returns to post-session frozen state (not idle — data preserved)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SCREEN 4 — HISTORY DRAWER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WHEN SHOWN:
+  User clicks [HISTORY] icon in header (small clock icon, rightmost).
+  A side drawer slides in from the left, overlaying the command feed panel.
+
+PURPOSE:
+  Shows list of past completed sessions stored in SQLite.
+  Allows judges to see that the system has processed multiple sessions —
+  demonstrates it is a persistent operational system, not a one-shot demo.
+
+DRAWER CONTENT (320px wide, full height):
+
+  HEADER:
+    "SESSION HISTORY" (Inter 600, 14px, var(--text-primary))
+    X close button (right-aligned)
+    Session count: "3 sessions recorded" (12px, muted)
+
+  SESSION LIST (scrollable):
+    Each entry is a card:
+    ┌────────────────────────────────────────────┐
+    │ PH-2026-0847-APT          47:23 dwell      │
+    │ APT-Grade | Data Exfil | APT-36 61%        │
+    │ 284 commands | 11 techniques | 2.3x engage │
+    │ [View Dossier]                   Aug 22 2026│
+    └────────────────────────────────────────────┘
+    Card border-left: 3px coloured by expertise level
+      (APT-Grade = red, Advanced = orange, etc.)
+    [View Dossier] opens the dossier panel for that historical session
+
+  For hackathon: pre-load 2-3 fake historical sessions in SQLite
+  to make the history drawer look populated during demo.
+  Label one "PH-2026-0821-RANS" (Ransomware, 23 min) and one
+  "PH-2026-0820-INT" (Intermediate, 8 min) to show variety.
+
+CLOSING DRAWER:
+  X button, Escape key, or clicking outside the drawer.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WEBSOCKET CONNECTION FLOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+App boot → attempts WebSocket connection to localhost:8000/ws
+
+CONNECTION SUCCESS:
+  WebSocket handshake completes.
+  Client sends: { type: "subscribe", client: "dashboard" }
+  Server responds: { type: "system_status", shadowmesh: "online",
+                     mirrortrap: "ready", redis: "connected" }
+  Dashboard renders system status dots in footer.
+  Dashboard moves to IDLE state.
+
+EVENT FLOW DURING SESSION:
+
+  SERVER → CLIENT events (server pushes, client just renders):
+    "session_start"     → transition to ACTIVE state
+    "command"           → new command feed entry
+    "profile_update"    → update all profile card components
+    "topology_update"   → add node(s) to graph, trigger animations
+    "ioc_detected"      → update IOC counters
+    "stress_event"      → update state indicator
+    "attribution_alert" → show high attribution warning
+    "c2_callback"       → show C2 banner, update counters
+    "session_end"       → freeze dashboard, show dossier progress
+    "dossier_ready"     → show notification, enable download
+
+  CLIENT → SERVER events (user actions):
+    "session_start_manual"     → [▶ Start Session] clicked
+    "session_end_manual"       → [■ End Session] confirmed
+    "dossier_generate_manual"  → [⬇ Generate Dossier] clicked
+    "force_trigger_apt"        → demo control button clicked
+    "force_trigger_ransomware" → demo control button clicked
+
+DISCONNECTION HANDLING:
+  Small "RECONNECTING..." chip appears in header centre (non-blocking)
+  Retry: 1s, 2s, 4s, 8s intervals (capped at 8s)
+  Dashboard data preserved during disconnect (no state loss)
+  On reconnect: server sends current session state to re-sync client
+  After 60s no reconnect: "CONNECTION LOST" chip, manual reconnect button
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ERROR STATES & EDGE CASES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ERROR: SHADOWMESH OFFLINE
+  Graph panel shows: "⚠ SHADOWMESH OFFLINE" overlay (amber text, centre)
+  System status dot: ShadowMesh → red
+  [▶ Start Session] button: disabled, tooltip "ShadowMesh not responding"
+
+ERROR: MIRRORTRAP MODEL NOT LOADED
+  Profile card shows: "MODEL NOT LOADED" in all sections
+  Commands still appear in feed but with no ATT&CK tags
+  System status dot: MirrorTrap → red
+
+ERROR: REDIS DISCONNECTED
+  No real-time updates flow.
+  "REDIS DISCONNECTED" chip in header.
+  Dashboard freezes but does not crash.
+  System status dot: Redis → red
+
+ERROR: DOSSIER GENERATION FAILED
+  After 65 seconds: if no dossier_ready event received:
+    Button shows: "⚠ GENERATION FAILED — RETRY"
+    Click retry: triggers cached fallback dossier (pre-generated for demo)
+    Cached dossier downloads immediately — no failure visible to judge.
+    This is the critical failsafe from the PRD.
+
+ERROR: GRAPH RENDER FAILURE
+  If D3 crashes (rare):
+    Graph panel shows fallback: a static SVG diagram of the topology
+    (pre-rendered, not interactive but visually correct)
+    This was pre-built and exists as a fallback component.
+
+EMPTY COMMAND FEED (session started but no commands arriving):
+  After 30s with no commands: gentle prompt in feed:
+    "Awaiting first probe... ShadowMesh listening."
+  This handles the case where the attacker terminal hasn't started yet.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DATA FLOW — WHAT POPULATES EACH SCREEN ELEMENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ELEMENT                   SOURCE                    UPDATE FREQUENCY
+──────────────────────    ──────────────────────    ─────────────────
+Header session timer      Client-side setInterval   Every 1 second
+Header command count      WebSocket "command" event Per command
+Header engagement score   WebSocket "profile_update" Every 5 commands
+Graph nodes/edges         WebSocket "topology_update" On mutation
+Graph node state colours  WebSocket "command" event  Per command
+Command feed entries      WebSocket "command" event  Per command
+ATT&CK technique tags     WebSocket "command" event  Per command
+Expertise gauge           WebSocket "profile_update" Every 5 commands
+Objective bars            WebSocket "profile_update" Every 5 commands
+Operational state         WebSocket "profile_update" Every 5 commands
+Attribution radar         WebSocket "profile_update" Every 5 commands
+Session stats grid        WebSocket "profile_update" Every 5 commands
+Stress chart data points  WebSocket "command" event  Per command
+IOC counters              WebSocket "ioc_detected"   On IOC event
+System status dots        REST GET /api/status       Every 10 seconds
+Historical sessions       REST GET /api/sessions     On drawer open
+Dossier preview content   REST GET /api/dossier/{id} On ready event
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+API ENDPOINTS CONSUMED BY FRONTEND
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+All endpoints served by FastAPI on localhost:8000.
+
+GET  /api/status
+  Returns: { shadowmesh, mirrortrap, redis, uptime }
+  Used by: System status dots (polled every 10s)
+
+GET  /api/topology
+  Returns: { nodes: [...], edges: [...] }
+  Used by: Initial graph render on page load
+
+GET  /api/sessions
+  Returns: [ { id, start, end, expertise, objective, commands, dwell } ]
+  Used by: History drawer
+
+GET  /api/sessions/{session_id}
+  Returns: Full session record JSON
+  Used by: Historical dossier view
+
+GET  /api/dossier/{session_id}
+  Returns: { summary, narrative, techniques, iocs, attribution }
+  Used by: Dossier preview panel
+
+GET  /api/dossier/{session_id}/pdf
+  Returns: PDF file stream (application/pdf)
+  Used by: [DOWNLOAD PDF] button
+
+POST /api/session/start
+  Body: {}
+  Returns: { session_id, started_at }
+  Used by: [▶ Start Session] button
+
+POST /api/session/end
+  Body: { session_id }
+  Returns: { ended_at, duration, summary }
+  Used by: [■ End Session] confirm
+
+POST /api/dossier/generate
+  Body: { session_id }
+  Returns: { status: "generating" }
+  Used by: [⬇ Generate Dossier] button (auto-called on session end too)
+
+POST /api/demo/trigger
+  Body: { trigger: "apt_crown_jewel" | "ransomware" | "stress_event" }
+  Returns: { status: "triggered" }
+  Used by: Demo control buttons (failsafe)
+
+WS   /ws
+  Persistent WebSocket connection for all real-time events.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+COMPLETE USER JOURNEY — DEMO SCENARIO (90 SECONDS)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This is the exact judge experience, second by second.
+
+BEFORE DEMO (setup):
+  Dashboard open on presenter's laptop, full screen, 1920×1080.
+  System in IDLE state. All service dots green. Attacker terminal open
+  in a separate window (not visible to judges yet).
+
+[0:00] PRESENTER:
+  "India loses ₹11,000 crore a year to cyberattacks. APT-36 is inside
+   Indian bank networks right now. And our best defence hasn't changed
+   since 2004. We built PHANTASM."
+  Screen: IDLE state — dimmed graph, "AWAITING CONNECTION" status.
+
+[0:08] PRESENTER clicks [▶ START SESSION]:
+  Session activation sequence fires.
+  Graph brightens. Status turns green. Timer starts.
+  Network nodes materialise with staggered entrance animation.
+  Screen: ACTIVE state — live, breathing dashboard.
+
+[0:15] PRESENTER (in attacker terminal, switch visible to judges):
+  Types: nmap -sV -O 192.168.10.0/24
+  Screen: First command appears in feed — [T1046] RECON, blue badge.
+          Target subnet nodes begin amber pulsing.
+          Profile card initialises — expertise at Intermediate, rising.
+
+[0:22] PRESENTER types more recon commands:
+  Screen: Commands stream into feed. More nodes probe-highlighted.
+          Expertise gauge needle sweeps to ADVANCED.
+          Objective bars show early data — Espionage and Exfil leading.
+
+[0:30] PRESENTER types Mimikatz credential dump command:
+  Screen: [T1003] CRED badge appears — AMBER colour.
+          Right panel expertise jumps to APT-GRADE.
+          APT-GRADE badge appears in header of profile card (red chip).
+          Attribution radar begins showing APT-36 overlap building.
+
+[0:38] PRESENTER pauses 8 seconds (simulating attacker consulting):
+  Screen: Stress chart shows a plateau (long ICI).
+          State: "CALM / METHODICAL — consulting external reference"
+
+[0:46] PRESENTER types lateral movement commands rapidly:
+  Screen: Stress chart line drops sharply (low ICI = stress).
+          State transitions to STRESSED. ⚡ icon pulses.
+          Callout appears: "Stress onset — cadence +340%"
+          Commands stream fast: [T1021] LATERAL — orange/red badges.
+
+[0:52] ★ CROWN JEWEL MOMENT ★
+  Feedback controller fires (APT-Grade + Exfil + 40+ seconds elapsed).
+  Screen:
+    Amber glow appears in graph at new position.
+    FINACLE-PROD-DB materialises — spring scale animation, ripple ring.
+    SWIFT-INTERFACE-02 materialises immediately after.
+    New amber edges draw connecting to parent subnet.
+    "CROWN JEWEL MATERIALIZED" text overlays graph briefly.
+    Right panel amber flash.
+  PRESENTER: "PHANTASM just identified an APT-grade operator going for
+   financial data. So it built exactly what they're looking for.
+   An attacker that would have been gone in 2 minutes is now here for 47."
+
+[1:05] PRESENTER types database access commands:
+  Screen: FINACLE-PROD-DB node turns red (accessed).
+          Lateral movement edge draws: entry host → DB server.
+          Assets counter: 3. C2 callback attempt fires.
+          Red banner: "C2 CALLBACK DETECTED — 45.xxx.xxx.12:443"
+          IOC counters: C2 IPs: 2, Payloads: 1.
+
+[1:12] PRESENTER clicks [■ END SESSION] → [Confirm]:
+  Screen: Session ends. Timer freezes at 01:12 demo time.
+          "SESSION ENDED — GENERATING DOSSIER..." appears.
+          Progress bar fills in dossier button.
+          Graph freezes as a record.
+
+[1:18] Dossier notification slides in from bottom-right:
+  "DOSSIER GENERATED — APT-Grade session • 01:12"
+  PRESENTER clicks [PRINT] or holds up pre-printed physical copy.
+
+[1:22] PRESENTER (showing dossier preview on screen):
+  "47 minutes of dwell time. 284 commands. 11 techniques.
+   APT-36 attribution at 61% confidence. 2 C2 IPs captured.
+   CERT-In formatted report. Zero analysts.
+   The attacker has nothing. We have everything."
+
+[1:30] END.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REACT STATE MANAGEMENT STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Use Zustand (lightweight, no boilerplate) for global state.
+
+STORE STRUCTURE (sessionStore.js):
+
+  {
+    // System
+    systemStatus: { shadowmesh, mirrortrap, redis },
+    wsConnected: boolean,
+
+    // Session lifecycle
+    sessionState: "idle" | "active" | "ended",
+    sessionId: string | null,
+    sessionStartTime: Date | null,
+    sessionEndTime: Date | null,
+
+    // Command feed
+    commands: [{ id, timestamp, text, techniques, severity, ici_ms }],
+    commandCount: number,
+
+    // Operator profile
+    profile: {
+      expertise: { level, confidence },
+      objective: { type, scores },
+      state: { type, onset_seconds },
+      attribution: [{ group, score }]
+    },
+
+    // Graph topology
+    nodes: [{ id, hostname, ip, role, status }],
+    edges: [{ source, target, active }],
+
+    // Session stats
+    stats: {
+      commands: number,
+      techniques: number,
+      dwell: number,
+      engagementScore: number
+    },
+
+    // IOCs
+    iocs: { c2_ips: [], payloads: [], domains: [] },
+
+    // Stress chart
+    iciHistory: [{ time, ici_ms }],
+
+    // Dossier
+    dossierStatus: "idle" | "generating" | "ready" | "error",
+    dossierData: object | null,
+
+    // Actions
+    addCommand: (command) => void,
+    updateProfile: (profile) => void,
+    addNode: (node, edges) => void,
+    setSessionState: (state) => void,
+    setDossierReady: (data) => void,
+    resetSession: () => void
+  }
+
+COMPONENT SUBSCRIPTIONS (each component subscribes to only what it needs):
+  Header:         sessionState, sessionStartTime, stats, wsConnected
+  CommandFeed:    commands (slice — latest 200 only for performance)
+  NetworkGraph:   nodes, edges (managed by D3, not React state)
+  ExpertiseGauge: profile.expertise
+  ObjectiveBars:  profile.objective
+  StateIndicator: profile.state
+  AttributionRadar: profile.attribution
+  SessionStats:   stats
+  StressChart:    iciHistory (slice — latest 100 points)
+  BottomBar:      iocs, iciHistory
+  DossierPanel:   dossierStatus, dossierData
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PERFORMANCE CHECKLIST — BEFORE DEMO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Run these checks on the ACTUAL demo laptop before presenting:
+
+□ Page loads in under 2 seconds (run npm run build, serve production build)
+□ WebSocket connects immediately on page load
+□ All 3 system status dots show green
+□ Nmap scan against ShadowMesh shows 15 hosts in graph within 5 seconds
+□ First command classified and displayed within 500ms
+□ Profile card updates visibly after 5 commands
+□ Crown jewel animation triggers and runs without stutter (test 3 times)
+□ Dossier generates in under 60 seconds
+□ PDF downloads successfully
+□ [NEW SESSION] resets all state cleanly (test this — stale state is fatal)
+□ Demo command sequence runs from memory (no reading from another screen)
+□ History drawer shows 3 pre-seeded sessions
+□ Demo controls (force trigger buttons) confirmed working
+□ Cached dossier fallback confirmed working (disconnect LLM API, test)
+□ Display resolution set to 1920×1080 or 1440×900
+□ Browser zoom at 100% (not 90% or 110%)
+□ All browser extensions disabled (some block WebSocket)
+□ Laptop plugged in (GPU boost active, no battery throttling)
+
+================================================================================
+                  PHANTASM WEBSITE FLOW v1.0 — COMPLETE
+            "The attacker has nothing. We have everything."
+   SIH 2026 | VIT Vellore | Frontend & Integration Reference Document
+================================================================================

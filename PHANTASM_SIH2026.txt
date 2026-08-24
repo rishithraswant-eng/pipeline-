@@ -1,0 +1,523 @@
+================================================================================
+                    PHANTASM — COGNITIVE HONEYPOT SYSTEM
+             SIH 2026 Internal Hackathon | Track: Blockchain & Cybersecurity
+                        Team: VIT Vellore | Category: Software
+================================================================================
+
+--------------------------------------------------------------------------------
+SECTION 1 — PROBLEM STATEMENT
+--------------------------------------------------------------------------------
+
+Title:
+  Adaptive AI-Driven Deception Infrastructure for Real-Time Attacker
+  Profiling and Threat Intelligence Generation
+
+Background:
+  India's critical infrastructure — banking networks, power grids, UIDAI
+  systems, defence communication — faces an escalating threat from Advanced
+  Persistent Threat (APT) groups operating with nation-state-level
+  sophistication. According to CERT-In's 2023-24 annual report, India recorded
+  over 1.39 million cybersecurity incidents, a 220% increase from 2019.
+  Sectors like BFSI (Banking, Financial Services & Insurance) and government
+  portals remain the most targeted.
+
+  Existing defence infrastructure operates on a fundamentally reactive model:
+  firewalls, IDS/IPS, and SIEM platforms detect threats only after malicious
+  activity has begun on real infrastructure. Honeypots — decoy systems designed
+  to lure attackers — exist but are static, well-documented, and fingerprinted
+  by sophisticated actors within minutes using timing analysis and response
+  pattern recognition. Once fingerprinted, attackers simply avoid them.
+
+  The result: defenders are always reacting. Attackers are always learning.
+  There is no system in India's current cybersecurity landscape that:
+    (a) generates a dynamically evolving deception environment resistant to
+        fingerprinting,
+    (b) profiles attacker behaviour and psychology in real-time during active
+        intrusion, and
+    (c) produces actionable threat intelligence automatically, formatted for
+        regulatory submission to CERT-In.
+
+Core Gap:
+  Deception technology is static. Attacker profiling happens weeks after
+  incidents in manual forensic reports. The feedback loop between "who is
+  attacking" and "what environment do we show them" does not exist in any
+  deployed system. PHANTASM closes this loop.
+
+--------------------------------------------------------------------------------
+SECTION 2 — PROPOSED SOLUTION
+--------------------------------------------------------------------------------
+
+System Name: PHANTASM
+  (Proactive Honeypot with Adaptive Network Topology and Attacker
+   Signature Mapping)
+
+One-Line Definition:
+  An AI-powered cognitive honeypot that generates a living, breathing fake
+  enterprise network, profiles attackers in real-time using behavioral AI,
+  and reshapes the deception environment dynamically based on who is inside
+  it — extracting maximum threat intelligence while burning attacker time
+  and resources on infrastructure that does not exist.
+
+Core Philosophy:
+  Traditional honeypots are traps. PHANTASM is a mirror — it reflects back
+  exactly what each attacker expects to find, adapted specifically for them,
+  keeping them engaged indefinitely while silently building a complete
+  intelligence dossier on their tactics, tools, and intent.
+
+--------------------------------------------------------------------------------
+SECTION 3 — SYSTEM ARCHITECTURE
+--------------------------------------------------------------------------------
+
+PHANTASM is a three-layer system where each layer feeds into the next in a
+continuous real-time feedback loop.
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        PHANTASM ARCHITECTURE                                │
+│                                                                             │
+│   [ ATTACKER ]                                                              │
+│       │                                                                     │
+│       ▼                                                                     │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  LAYER 1 — SHADOWMESH (Generative Network Environment)              │   │
+│  │  GAN-generated fake enterprise topology                             │   │
+│  │  Realistic service banners, hostnames, AD structure                 │   │
+│  │  Scapy/NFQueue packet-level response engine                         │   │
+│  └───────────────────────────┬─────────────────────────────────────────┘   │
+│                              │ raw attacker command stream                  │
+│                              ▼                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  LAYER 2 — MIRRORTRAP (Behavioral Profiling Engine)                 │   │
+│  │  Transformer-based real-time operator profiling                     │   │
+│  │  4-dimensional profile: Expertise / Objective / State / Attribution │   │
+│  │  MITRE ATT&CK technique classification                              │   │
+│  └───────────────────────────┬─────────────────────────────────────────┘   │
+│                              │ live operator profile                        │
+│                              ▼                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  LAYER 3 — ADAPTIVE FEEDBACK LOOP                                   │   │
+│  │  Profile feeds back into ShadowMesh                                 │   │
+│  │  Topology reshapes in real-time for this specific attacker           │   │
+│  │  Auto-generates CERT-In formatted threat dossier                    │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+--------------------------------------------------------------------------------
+LAYER 1 — SHADOWMESH: Generative Network Environment
+--------------------------------------------------------------------------------
+
+Purpose:
+  Generate and serve a synthetic enterprise network that is statistically
+  indistinguishable from real Indian enterprise infrastructure, specifically
+  modelled on BFSI sector network layouts (most targeted sector in India).
+
+Components:
+
+  1.1 Topology Generator
+      - Procedurally generates a fake network on boot: realistic hostnames
+        (branch-server-01.hdfc-internal, dc-auth.axis-corp), IP ranges in
+        private RFC-1918 space, plausible subnet segmentation
+      - Generates fake Active Directory structure: OU trees, user accounts,
+        group policies matching real enterprise naming conventions
+      - Models a typical Indian mid-tier bank network: core banking server
+        cluster, payment gateway node, HR database, SWIFT interface node,
+        customer data warehouse — all fake, all realistic
+
+  1.2 Response Engine (Scapy + NFQueue)
+      - Intercepts incoming probe packets at kernel level via NFQueue
+      - Crafts and returns protocol-correct responses: Nmap fingerprinting
+        gets back authentic OS signatures (Windows Server 2019, Cisco IOS),
+        banner grabbing gets real service strings, SSL handshakes complete
+        with self-signed certificates matching the fake hostname
+      - Response latencies are randomised within realistic human network
+        jitter ranges to defeat timing-based honeypot detection
+
+  1.3 GAN-Based Traffic Normalisation
+      - A GAN trained on CICIDS-2023 and UNSW-NB15 enterprise traffic datasets
+        generates background noise traffic — fake keep-alives, NTP syncs,
+        DNS queries — that fills the network with the ambient activity a real
+        network would have
+      - Without this, an attacker listening passively would notice the silence
+        that betrays a honeypot
+
+  1.4 Dynamic Topology Mutation (Feedback-Driven)
+      - Once MirrorTrap produces an operator profile, ShadowMesh reshapes:
+        * APT / nation-state profile detected → new "crown jewel" nodes
+          materialise deeper in the network: SWIFT interface, FINACLE-PROD-DB,
+          UID-INTEGRATION-API
+        * Ransomware operator detected → expose more Windows shares, SMB
+          vulnerabilities, backup server nodes
+        * Insider threat pattern detected → generate fake HR records database,
+          salary data, employee PII (all synthetic)
+        * Script kiddie / automated tooling → surface obvious unpatched CVEs
+          that trigger more tool activity, generating richer signatures
+
+--------------------------------------------------------------------------------
+LAYER 2 — MIRRORTRAP: Real-Time Behavioral Profiling Engine
+--------------------------------------------------------------------------------
+
+Purpose:
+  Build a live psychological and operational profile of the attacker from
+  their command patterns, timing, syntax choices, and error behaviour —
+  without the attacker knowing they are being observed and profiled.
+
+Four Profiling Dimensions:
+
+  2.1 Expertise Classification
+      Input signals:
+        - Command complexity and sequencing
+        - Error recovery speed and method (brute force vs. elegant pivot)
+        - Use of aliases, pipes, redirections (shell fluency indicators)
+        - Tool version fingerprints (older Metasploit modules = less updated)
+      Output: [Script Kiddie | Intermediate | Advanced | APT-Grade]
+
+  2.2 Objective Inference
+      Input signals:
+        - Lateral movement patterns (credential-based vs. exploit-based)
+        - Data access patterns (bulk export vs. targeted lookup)
+        - Persistence mechanisms attempted
+        - Network scanning breadth vs. depth ratio
+      Output: [Ransomware | Data Exfiltration | Espionage | Sabotage |
+               Cryptomining | Insider]
+
+  2.3 Operational State Estimation
+      Input signals:
+        - Inter-command timing (acceleration = urgency/stress,
+          deceleration = manual consultation or uncertainty)
+        - Filler commands (running whoami, pwd repeatedly = disorientation)
+        - Backspacing and correction frequency (inferred from timing gaps)
+      Output: [Calm/Methodical | Stressed/Rushed | Disoriented | Automated]
+
+  2.4 Attribution Signal Extraction
+      Input signals:
+        - Tool signatures matched against known threat actor toolkits
+        - Command syntax idioms (PowerShell style, bash quoting conventions,
+          character encoding choices correlate with keyboard locale)
+        - Timing patterns across sessions correlate with timezone-adjusted
+          working hours
+        - TTP overlap scoring against MITRE ATT&CK group profiles
+      Output: Probability distribution over known threat actor groups with
+              confidence scores. Flagged if overlap > 60% with any group.
+
+AI Model:
+  - Base: Transformer encoder (BERT-architecture) fine-tuned on red-team
+    exercise logs, CTF competition command sequences, and MITRE ATT&CK
+    emulation dataset command traces
+  - Input: rolling 30-command context window, tokenised at command boundary
+  - Output: 4-dimensional profile vector updated every 5 commands
+  - Training data: MITRE Caldera emulation logs, DARPA Transparent Computing
+    dataset, synthetic augmentation via GPT-based red-team simulation
+
+--------------------------------------------------------------------------------
+LAYER 3 — ADAPTIVE FEEDBACK LOOP + DOSSIER ENGINE
+--------------------------------------------------------------------------------
+
+  3.1 Feedback Controller
+      - Subscribes to MirrorTrap profile updates via internal message queue
+      - Translates profile changes into ShadowMesh topology directives
+      - Enforces engagement maximisation: each topology change is designed to
+        extend attacker dwell time by presenting a new compelling target
+      - Tracks total engagement time, commands issued, data accessed (all fake)
+
+  3.2 Dossier Generator
+      - Triggered on session end (attacker disconnects or timeout)
+      - Aggregates: full command log with timestamps, profile evolution over
+        session, ATT&CK techniques mapped (MITRE framework tags), tools
+        identified, fake data accessed, inferred objective, attribution signals
+      - LLM-powered structured report generation: formats output as a
+        Suspicious Cyber Activity Report aligned with CERT-In reporting
+        guidelines (CERT-In MIS format)
+      - Output: PDF report + JSON structured data for SIEM ingestion
+
+  Sample Dossier Output Fields:
+      ┌──────────────────────────────────────────────────────────┐
+      │ SESSION SUMMARY                                          │
+      │ Duration: 47 min 23 sec                                  │
+      │ Commands Issued: 284                                     │
+      │ Peak Expertise: Advanced                                 │
+      │ Inferred Objective: Data Exfiltration                    │
+      │ Operator State: Calm → Stressed (after min 31)          │
+      │                                                          │
+      │ ATT&CK TECHNIQUES OBSERVED                              │
+      │ T1046 — Network Service Scanning                         │
+      │ T1078 — Valid Accounts (attempted)                       │
+      │ T1021 — Remote Services                                  │
+      │ T1005 — Data from Local System                           │
+      │                                                          │
+      │ ATTRIBUTION                                              │
+      │ APT-36 overlap: 61% confidence                           │
+      │ Tool signature: custom Python implant, Mimikatz variant  │
+      │                                                          │
+      │ RECOMMENDATION                                           │
+      │ Escalate to CERT-In. Flag originating ASN for           │
+      │ blocking. Patch T1078 vector on real infrastructure.     │
+      └──────────────────────────────────────────────────────────┘
+
+--------------------------------------------------------------------------------
+SECTION 4 — TECHNOLOGY STACK
+--------------------------------------------------------------------------------
+
+Backend:
+  - Python 3.11 (core system)
+  - Scapy 2.5 — packet crafting and response engine
+  - NFQueue (libnetfilter_queue) — kernel-level packet interception
+  - PyTorch 2.x — MirrorTrap transformer model inference
+  - Redis — real-time message queue between layers
+  - FastAPI — internal REST API between components
+  - Docker — containerised deployment of ShadowMesh nodes
+
+AI/ML:
+  - Transformer encoder (custom BERT-base fine-tune) — command profiling
+  - GAN (DCGAN architecture) — traffic normalisation
+  - MITRE ATT&CK classifier (fine-tuned DistilBERT) — technique tagging
+  - LLM API (Claude/GPT-4o) — dossier natural language generation
+
+Frontend Dashboard:
+  - React 18 + Vite
+  - D3.js force-directed graph — live network topology visualisation
+  - WebSocket — real-time command feed and profile updates
+  - Recharts — profiling dimension timelines
+  - Design: dark cinematic theme, amber/gold accent system
+
+Data Sources:
+  - CICIDS-2023 dataset — GAN training for traffic normalisation
+  - UNSW-NB15 dataset — network behaviour baseline
+  - MITRE Caldera emulation logs — MirrorTrap training
+  - MITRE ATT&CK STIX data — technique classification labels
+  - CERT-In MIS report format — dossier output template
+
+--------------------------------------------------------------------------------
+SECTION 5 — OBJECTIVES
+--------------------------------------------------------------------------------
+
+Primary Objectives:
+  O1. Build a generative fake enterprise network that passes real Nmap/Shodan
+      fingerprinting without detection as a honeypot
+  O2. Profile attacker behaviour across 4 dimensions in real-time with
+      update latency under 5 seconds per profile refresh
+  O3. Demonstrate adaptive topology mutation — measurably increasing attacker
+      dwell time compared to a static honeypot baseline
+  O4. Auto-generate a CERT-In formatted threat intelligence report at
+      session end with zero manual intervention
+
+Secondary Objectives:
+  O5. Demonstrate attribution signal extraction with ATT&CK group overlap
+      scoring on known historical threat actor command sequences
+  O6. Show cross-session pattern correlation — recognising the same operator
+      returning with different tools or entry points
+
+--------------------------------------------------------------------------------
+SECTION 6 — METHODOLOGY
+--------------------------------------------------------------------------------
+
+Phase 1 — ShadowMesh Core (Hours 0–6)
+  - Deploy NFQueue packet interception on loopback
+  - Build response templates for top 20 most probed services:
+    SSH, HTTP/S, SMB, RDP, MySQL, MSSQL, FTP, Telnet, WinRM, LDAP
+  - Generate base topology: 15 fake hosts, 3 subnets, 1 AD controller
+  - Verify Nmap scan returns realistic results against the fake network
+
+Phase 2 — MirrorTrap Profiling (Hours 4–12)
+  - Load pre-trained ATT&CK classifier (fine-tuned offline, loaded at runtime)
+  - Build command ingestion pipeline: terminal → parser → classifier → profile
+  - Implement 4-dimension profile data structure with rolling window
+  - Connect profile output to Redis queue for frontend consumption
+
+Phase 3 — Feedback Loop (Hours 10–16)
+  - Implement topology mutation triggers keyed to profile thresholds
+  - Build 4 pre-designed topology expansion templates (APT/Ransomware/
+    Insider/Automated) that ShadowMesh loads on trigger
+  - Test full loop: attack → profile → mutation → continued attack
+
+Phase 4 — Dashboard + Dossier (Hours 14–22)
+  - React dashboard: D3 network graph, live command feed, profile cards
+  - WebSocket integration for real-time updates
+  - Dossier generator: session aggregation + LLM API call + PDF output
+  - End-to-end integration test
+
+Phase 5 — Demo Rehearsal (Hours 22–24)
+  - Full dry run of demo script
+  - Pre-load historical APT command sequence for backup if live demo fails
+  - Verify all visual outputs render correctly on demo machine
+
+--------------------------------------------------------------------------------
+SECTION 7 — NOVELTY & DIFFERENTIATION
+--------------------------------------------------------------------------------
+
+What Exists Today:
+  - Static honeypots (Honeyd, OpenCanary): fixed topology, fingerprinted
+    within minutes by sophisticated attackers
+  - Commercial deception platforms (Attivo, Illusive): rule-based, expensive,
+    require weeks of configuration, no behavioral AI layer
+  - Threat intelligence platforms (Recorded Future, MISP): post-incident,
+    not real-time, not generative
+  - Honeypot + ML research papers: academic, never operationalised
+
+What PHANTASM Does That Nothing Else Does:
+  1. GENERATIVE environment resistant to fingerprinting — not rules, but
+     a trained GAN producing statistically real network behaviour
+  2. REAL-TIME psychological and operational profiling of the attacker —
+     not post-incident forensics, but live inference during the attack
+  3. ADAPTIVE feedback loop — the environment changes based on who is
+     in it, in real-time, automatically
+  4. AUTOMATED threat intelligence output — a CERT-In ready dossier
+     generated without a single human analyst in the loop
+
+The combination of these four properties in one system does not exist in
+any deployed product or published research as of 2026.
+
+--------------------------------------------------------------------------------
+SECTION 8 — IMPACT & RELEVANCE TO INDIA
+--------------------------------------------------------------------------------
+
+Regulatory Context:
+  - CERT-In's 2023 directive mandated 6-hour incident reporting for all
+    critical infrastructure operators
+  - India's National Cybersecurity Policy 2020 explicitly calls for
+    "deception-based defence" capabilities — PHANTASM is a direct answer
+  - BFSI sector losses to cyber fraud: ₹11,000+ crore in 2023-24 (RBI data)
+
+Who Uses PHANTASM:
+  - CERT-In: deploy at national internet exchange points to profile
+    nation-state actors probing Indian infrastructure
+  - PSU Banks (SBI, PNB, Canara): deploy inside internal networks to
+    catch lateral movement post-breach
+  - Defence sector: ISPs and DRDO networks as a tripwire + intelligence layer
+  - Private CERTs and SOC teams: replace static honeypots with adaptive
+    deception at a fraction of commercial platform costs
+
+Why Now:
+  APT-36 (Pakistan-linked), APT-41 (China-linked), and Lazarus Group
+  (North Korea-linked) have all conducted documented attacks on Indian
+  infrastructure in 2023-24. Each of these groups fingerprints and avoids
+  static honeypots. A dynamic, generative deception system is the next
+  necessary evolution of India's cyber defence posture.
+
+--------------------------------------------------------------------------------
+SECTION 9 — FUTURE ROADMAP
+--------------------------------------------------------------------------------
+
+Version 1.0 (Hackathon — 24 hours):
+  Core ShadowMesh + MirrorTrap + basic feedback loop + dashboard + dossier
+
+Version 2.0 (3 months post-hackathon):
+  - RL-based topology optimisation replacing rule-based mutation
+  - Multi-session attacker tracking (same operator, different IPs)
+  - MISP integration for automated threat indicator sharing
+  - Kubernetes deployment for multi-instance national-scale deployment
+
+Version 3.0 (12 months):
+  - CERT-In API integration for direct automated report submission
+  - Dark web correlation: match dossier TTPs against dark web forum
+    chatter about Indian targets
+  - Federated deployment: multiple PHANTASM instances sharing anonymised
+    attacker profiles to build national-level threat picture
+  - Hardware appliance version for air-gapped government networks
+
+Commercial Path:
+  - SaaS licensing to private sector banks and telcos
+  - Government procurement through MeitY / NCIIPC channels
+  - Open-source core with enterprise features (PHANTASM Community Edition)
+
+--------------------------------------------------------------------------------
+SECTION 10 — TEAM & RESOURCE REQUIREMENTS
+--------------------------------------------------------------------------------
+
+Team Composition (6 members):
+  Member 1 — ShadowMesh Lead
+    Owns: Scapy response engine, NFQueue integration, topology generator,
+          GAN traffic normalisation
+    Stack: Python, Scapy, Linux networking, Docker
+
+  Member 2 — MirrorTrap AI Lead
+    Owns: Transformer model loading and inference pipeline, ATT&CK
+          classifier, 4-dimension profile data structure
+    Stack: PyTorch, HuggingFace Transformers, Redis
+
+  Member 3 — Feedback Loop + Integration
+    Owns: Profile-to-topology mutation controller, Redis message queue,
+          end-to-end pipeline integration, session manager
+    Stack: Python, Redis, FastAPI
+
+  Member 4 — Dossier Engine
+    Owns: Session aggregation, LLM API integration, PDF report generation,
+          CERT-In format compliance
+    Stack: Python, ReportLab/WeasyPrint, LLM API
+
+  Member 5 — Frontend Dashboard
+    Owns: React dashboard, D3 force graph, WebSocket real-time feed,
+          profile cards, design system
+    Stack: React, D3.js, WebSocket, TailwindCSS
+
+  Member 6 — PPT, Pitch & Demo Script
+    Owns: Presentation design, demo rehearsal coordination, backup
+          command sequence preparation, printed dossier prop
+
+Hardware Requirements:
+  - 2x Laptops (existing team hardware — no additional cost)
+  - 1x Phone as secondary display (optional)
+  - No cloud infrastructure required for demo (fully local)
+
+Software Requirements (all free/open-source except LLM API):
+  - Python 3.11, PyTorch, Scapy, Redis, React, D3.js — all free
+  - HuggingFace pre-trained models — free tier
+  - LLM API (Claude/GPT-4o) — estimated ₹500–1000 for hackathon usage
+  - Pre-trained datasets (CICIDS, MITRE ATT&CK, UNSW-NB15) — public/free
+
+Estimated Budget:
+  - LLM API credits: ₹800
+  - Printing (dossier prop for demo): ₹100
+  - Total: ~₹900
+
+--------------------------------------------------------------------------------
+SECTION 11 — DEMO SCRIPT (OVERVIEW)
+--------------------------------------------------------------------------------
+
+Duration: 90 seconds
+Setup: Single laptop, split-screen dashboard open
+
+Act 1 — Recon (0:00–0:30)
+  Attacker terminal starts: real Nmap scan against ShadowMesh
+  Dashboard: network graph populates live, fake hosts respond, profile
+  card initialises with first classification signals
+
+Act 2 — Exploitation & Profiling (0:30–1:10)
+  Attacker finds fake vulnerable service, attempts lateral movement
+  Dashboard: profile dimensions update live, ATT&CK techniques tag in
+  real-time, network graph reshapes — new crown jewel node appears
+  Narration: "The network just changed. PHANTASM identified an advanced
+  operator and surfaced what it thinks they're looking for."
+
+Act 3 — Dossier (1:10–1:30)
+  Session ends. One-page threat dossier generates on screen.
+  Physical printed copy handed to judge.
+  Narration: "47 minutes. 284 commands. A complete intelligence profile.
+  The attacker has nothing. We have everything."
+
+--------------------------------------------------------------------------------
+SECTION 12 — REFERENCES & STANDARDS ALIGNMENT
+--------------------------------------------------------------------------------
+
+Standards:
+  - MITRE ATT&CK Framework v14 — technique classification
+  - CERT-In Cyber Security Incident Reporting Format (MIS)
+  - NIST SP 800-150 — Guide to Cyber Threat Information Sharing
+  - India NCIIPC Guidelines for Critical Infrastructure Protection
+
+Datasets:
+  - CICIDS-2023: Canadian Institute for Cybersecurity Intrusion Detection
+  - UNSW-NB15: University of New South Wales Network Behaviour dataset
+  - MITRE Caldera: Adversary emulation command logs
+  - DARPA Transparent Computing Dataset: APT behaviour sequences
+
+Prior Art (What We Build Beyond):
+  - Honeyd (Niels Provos, 2004) — static, fingerprinted
+  - OpenCanary (Thinkst, 2015) — static alerts, no profiling
+  - Attivo Networks ThreatDefend — commercial, rule-based, no generative AI
+  - Academic: "HoneyGen" (IEEE 2022) — generative honeypot, no feedback loop
+  PHANTASM is the first system to combine all four: generative environment,
+  real-time behavioral AI, adaptive feedback, and automated intelligence output.
+
+================================================================================
+                         END OF DOCUMENT — PHANTASM v1.0
+                    SIH 2026 | VIT Vellore | Track: Cybersecurity
+================================================================================

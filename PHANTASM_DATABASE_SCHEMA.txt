@@ -1,0 +1,1008 @@
+================================================================================
+                         PHANTASM — COMPLETE DATABASE SCHEMA
+              Cognitive Honeypot System | Persistent Storage Architecture
+              Version 1.0 | Classification: INTERNAL — TEAM USE ONLY
+              Author: Database Architect, PHANTASM Core Team
+              SIH 2026 | VIT Vellore | Track: Blockchain & Cybersecurity
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1: STORAGE ARCHITECTURE OVERVIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHANTASM uses a two-tier storage model combining in-memory ephemeral state with
+persistent relational storage, separated cleanly by operational boundary:
+
+  TIER 1 — Redis 7.x (In-Memory, Sub-millisecond)
+  ─────────────────────────────────────────────────
+  Purpose: Real-time pipeline message bus. NOT the source of truth.
+  Role: Pub/Sub channel broker for live events between all PHANTASM components.
+  Persistence: RDB snapshot every 60 seconds (aof disabled for demo latency).
+  Data lifespan: Session-scoped. Flushed on system restart.
+  Key schema described in Section 3.
+
+  TIER 2 — SQLite via aiosqlite (On-Disk, Persistent)
+  ─────────────────────────────────────────────────────
+  Purpose: Full session archive. Long-term intelligence repository. Source of
+  truth for the dossier engine, session history drawer, multi-session operator
+  fingerprint correlation (v2.0), and audit logs.
+  Location: /data/phantasm.db (Docker volume mount for persistence across
+  container restarts)
+  Schema: 14 normalised tables described in Section 2.
+  WAL mode enabled (write-ahead logging) for concurrent async read/write.
+
+Design rationale: Every packet hit, command event, and profile update flows
+through Redis at microsecond latency. Only finalised, structured records
+(commands, techniques, topology mutations, IOCs, sessions) are written to
+SQLite — batched by the session_mgr.py flush worker every 5 seconds during
+active sessions, and synchronously committed on session end before dossier
+generation begins.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2: SQLite RELATIONAL SCHEMA — FULL TABLE DEFINITIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+All tables use INTEGER PRIMARY KEY AUTOINCREMENT unless specified. All
+TIMESTAMP columns store ISO 8601 UTC strings. All synthetic data flags are
+explicitly marked with is_synthetic BOOLEAN DEFAULT TRUE to comply with
+PHANTASM's ethical mandate (Section 10 of PRD).
+
+────────────────────────────────────────────────────────────────────────────────
+TABLE 1: sessions
+────────────────────────────────────────────────────────────────────────────────
+Primary record for every attacker engagement session. Created on session start,
+updated incrementally, finalised on session end.
+
+  CREATE TABLE sessions (
+    session_pk          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id          TEXT NOT NULL UNIQUE,
+      -- Format: PH-2026-{YYYYMMDDHHmmss}-{6char_profile_code}
+      -- e.g.: PH-2026-20260822143012-APT4X1
+    created_at          TEXT NOT NULL,          -- ISO 8601 UTC, session start
+    ended_at            TEXT,                   -- NULL until session ends
+    duration_seconds    INTEGER,                -- NULL until session ends
+    session_state       TEXT NOT NULL DEFAULT 'active',
+      -- ENUM: 'active' | 'ended' | 'aborted'
+    attacker_source_ip  TEXT,                   -- First observed source IP
+    attacker_source_port INTEGER,               -- First observed source port
+    entry_protocol      TEXT,                   -- 'ssh'|'rdp'|'smb'|'http'|'nmap'
+    total_commands      INTEGER DEFAULT 0,
+    unique_techniques   INTEGER DEFAULT 0,
+    engagement_score    REAL DEFAULT 0.0,
+      -- Computed: (dwell_actual / dwell_baseline_static) × technique_depth_weight
+    dwell_baseline_s    INTEGER DEFAULT 120,
+      -- Static honeypot baseline dwell (120s = 2min, attacker fingerprints and leaves)
+    dwell_multiplier    REAL DEFAULT 1.0,
+      -- Actual / baseline — the headline metric shown on dossier
+    topology_version_id INTEGER REFERENCES topology_snapshots(snapshot_pk),
+      -- Which ShadowMesh topology was active when this session started
+    dossier_generated   BOOLEAN DEFAULT FALSE,
+    dossier_path        TEXT,                   -- Filesystem path to generated PDF
+    dossier_json_path   TEXT,                   -- Filesystem path to JSON record
+    operator_human      BOOLEAN DEFAULT TRUE,   -- FALSE if fully automated tooling
+    notes               TEXT                    -- Internal team annotation field
+  );
+
+  INDEX: sessions_session_id_idx ON sessions(session_id)
+  INDEX: sessions_created_at_idx ON sessions(created_at)
+
+────────────────────────────────────────────────────────────────────────────────
+TABLE 2: commands
+────────────────────────────────────────────────────────────────────────────────
+Granular record of every command or probe action issued by the attacker during
+a session. This is PHANTASM's most write-heavy table. Batch-inserted every
+5 seconds by the flush worker to avoid lock contention.
+
+  CREATE TABLE commands (
+    command_pk          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_fk          INTEGER NOT NULL REFERENCES sessions(session_pk),
+    command_seq         INTEGER NOT NULL,
+      -- Monotonically increasing sequence number within session (1, 2, 3...)
+    received_at         TEXT NOT NULL,          -- ISO 8601 UTC, microsecond precision
+    session_elapsed_ms  INTEGER NOT NULL,       -- Milliseconds since session start
+    raw_command         TEXT NOT NULL,          -- Raw command string as captured
+    normalised_command  TEXT,                   -- Lowercased, whitespace-normalised form
+    command_type        TEXT,
+      -- ENUM: 'shell'|'powershell'|'sql'|'smb_action'|'http_request'|'nmap_probe'
+    target_ip           TEXT,                   -- Destination IP this command targeted
+    target_port         INTEGER,
+    target_hostname     TEXT,                   -- Resolved fake hostname if applicable
+    ici_ms              INTEGER,
+      -- Inter-Command Interval in milliseconds. NULL for first command of session.
+      -- Critical for stress index computation. Low ICI (<3000ms sustained) = stress.
+    is_first_command    BOOLEAN DEFAULT FALSE,
+    is_stress_trigger   BOOLEAN DEFAULT FALSE,  -- Set TRUE if ICI < 3000ms and prior ICI > 8000ms
+    is_automation_signal BOOLEAN DEFAULT FALSE, -- Set TRUE if ICI < 200ms (tool loop)
+    protocol_layer      TEXT,                   -- 'tcp'|'udp'|'icmp'|'application'
+    payload_hash        TEXT                    -- SHA-256 of any binary payload, NULL if none
+  );
+
+  INDEX: commands_session_fk_idx ON commands(session_fk)
+  INDEX: commands_received_at_idx ON commands(received_at)
+  INDEX: commands_ici_ms_idx ON commands(ici_ms)
+      -- Needed for stress timeline queries in dossier engine
+
+────────────────────────────────────────────────────────────────────────────────
+TABLE 3: command_techniques
+────────────────────────────────────────────────────────────────────────────────
+Many-to-many link between commands and MITRE ATT&CK techniques. A single
+command can map to multiple techniques (e.g., a base64-encoded PowerShell
+command maps to T1059.001 AND T1140 AND potentially T1027).
+
+  CREATE TABLE command_techniques (
+    ct_pk               INTEGER PRIMARY KEY AUTOINCREMENT,
+    command_fk          INTEGER NOT NULL REFERENCES commands(command_pk),
+    session_fk          INTEGER NOT NULL REFERENCES sessions(session_pk),
+      -- Denormalised for fast session-level technique aggregation
+    technique_id        TEXT NOT NULL,          -- e.g.: 'T1046', 'T1003.001'
+    technique_name      TEXT NOT NULL,          -- e.g.: 'Network Service Scanning'
+    tactic              TEXT NOT NULL,
+      -- ENUM: 'reconnaissance'|'initial-access'|'execution'|'persistence'|
+      --       'privilege-escalation'|'defense-evasion'|'credential-access'|
+      --       'discovery'|'lateral-movement'|'collection'|'command-and-control'|
+      --       'exfiltration'|'impact'
+    confidence          REAL NOT NULL,          -- Model confidence [0.0, 1.0]
+    is_primary          BOOLEAN DEFAULT TRUE,   -- Primary vs secondary technique assignment
+    first_occurrence    BOOLEAN DEFAULT FALSE,  -- TRUE only for first time this technique seen in session
+    classified_at       TEXT NOT NULL           -- Timestamp of classification
+  );
+
+  INDEX: ct_session_fk_technique_idx ON command_techniques(session_fk, technique_id)
+  INDEX: ct_technique_id_idx ON command_techniques(technique_id)
+
+────────────────────────────────────────────────────────────────────────────────
+TABLE 4: operator_profiles
+────────────────────────────────────────────────────────────────────────────────
+Stores the full time-series of MirrorTrap profile snapshots during a session.
+One row per profile update publish event (every 5 commands by default).
+The final row before session end is the authoritative profile used in dossier.
+
+  CREATE TABLE operator_profiles (
+    profile_pk          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_fk          INTEGER NOT NULL REFERENCES sessions(session_pk),
+    snapshot_at         TEXT NOT NULL,          -- ISO 8601 UTC
+    session_elapsed_s   INTEGER NOT NULL,       -- Seconds since session start
+    command_count_at_snapshot INTEGER NOT NULL, -- How many commands had been issued
+
+    -- DIMENSION 1: Expertise Level
+    expertise_level     TEXT NOT NULL,
+      -- ENUM: 'script_kiddie'|'intermediate'|'advanced'|'apt_grade'
+    expertise_confidence REAL NOT NULL,         -- [0.0, 1.0]
+
+    -- DIMENSION 2: Primary Objective
+    primary_objective   TEXT NOT NULL,
+      -- ENUM: 'ransomware'|'data_exfiltration'|'espionage'|'credential_harvest'|
+      --       'disruption'|'lateral_spread'|'reconnaissance_only'|'unknown'
+    objective_confidence REAL NOT NULL,
+
+    -- Objective component scores (stored as JSON array string for compactness)
+    objective_scores_json TEXT,
+      -- e.g.: '[{"type":"espionage","score":0.71},{"type":"data_exfiltration","score":0.61}]'
+
+    -- DIMENSION 3: Operational State
+    operational_state   TEXT NOT NULL,
+      -- ENUM: 'methodical'|'exploratory'|'stressed'|'disoriented'|
+      --       'retreating'|'automated'
+    state_onset_s       INTEGER,                -- Session-elapsed seconds when this state began
+
+    -- DIMENSION 4: Attribution
+    top_apt_group       TEXT,                   -- e.g.: 'APT-36'
+    top_apt_score       REAL,                   -- Cosine similarity [0.0, 1.0]
+    attribution_json    TEXT,
+      -- Full ranked attribution array:
+      -- '[{"group_id":"G0012","group_name":"APT-36","overlap":0.61,"confidence":0.58}]'
+    tool_signatures_json TEXT,
+      -- '[{"tool":"mimikatz","version":"unknown","evidence":"sekurlsa::logonpasswords"}]'
+
+    -- Timing-derived metrics at this snapshot
+    avg_ici_ms          REAL,                   -- Average inter-command interval
+    min_ici_ms          INTEGER,                -- Minimum ICI (stress peak indicator)
+    max_ici_ms          INTEGER,                -- Maximum ICI (patience/planning indicator)
+    stress_events_count INTEGER DEFAULT 0,      -- Cumulative stress trigger count
+    engagement_score_at_snapshot REAL
+  );
+
+  INDEX: op_session_fk_idx ON operator_profiles(session_fk)
+  INDEX: op_snapshot_at_idx ON operator_profiles(snapshot_at)
+
+────────────────────────────────────────────────────────────────────────────────
+TABLE 5: topology_snapshots
+────────────────────────────────────────────────────────────────────────────────
+Records the state of ShadowMesh topology at session start and after each
+adaptive mutation. Allows full session replay and topology diff analysis.
+
+  CREATE TABLE topology_snapshots (
+    snapshot_pk         INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_fk          INTEGER REFERENCES sessions(session_pk),
+      -- NULL for the initial base topology snapshot (pre-session)
+    snapshot_type       TEXT NOT NULL,
+      -- ENUM: 'base'|'mutation'|'session_start'
+    created_at          TEXT NOT NULL,
+    trigger_reason      TEXT,
+      -- e.g.: 'apt_grade_threshold_crossed'|'ransomware_detected'|'manual_demo_trigger'
+    trigger_profile_fk  INTEGER REFERENCES operator_profiles(profile_pk),
+    node_count          INTEGER NOT NULL,
+    topology_json       TEXT NOT NULL
+      -- Full serialised topology state. See format in Section 4.
+  );
+
+────────────────────────────────────────────────────────────────────────────────
+TABLE 6: fake_hosts
+────────────────────────────────────────────────────────────────────────────────
+Master registry of all synthetic hosts in the ShadowMesh. Populated on system
+init from topology generator. Updated when mutation adds new nodes.
+
+  CREATE TABLE fake_hosts (
+    host_pk             INTEGER PRIMARY KEY AUTOINCREMENT,
+    topology_snapshot_fk INTEGER NOT NULL REFERENCES topology_snapshots(snapshot_pk),
+    hostname            TEXT NOT NULL,          -- e.g.: 'dc-auth-prod.bankname-internal.local'
+    ip_address          TEXT NOT NULL,          -- e.g.: '192.168.10.31'
+    mac_address         TEXT NOT NULL,          -- Synthetic, OUI from real vendor pool
+    subnet              TEXT NOT NULL,          -- ENUM: 'user_vlan'|'server_vlan'|'mgmt_vlan'
+    subnet_cidr         TEXT NOT NULL,          -- e.g.: '192.168.10.0/24'
+    host_role           TEXT NOT NULL,
+      -- ENUM: 'domain_controller'|'database_server'|'web_server'|'file_server'|
+      --       'payment_gateway'|'hr_system'|'workstation'|'backup_server'|
+      --       'swift_interface'|'core_banking'|'uid_api'|'proxy'|'management'
+    declared_os         TEXT NOT NULL,          -- e.g.: 'Windows Server 2019 Standard'
+    declared_os_version TEXT,                   -- e.g.: '10.0.17763'
+    ttl_value           INTEGER NOT NULL,       -- 128 for Windows, 64 for Linux
+    tcp_window_size     INTEGER NOT NULL,       -- OS-specific: 65535 (Win), 29200 (Linux)
+    response_latency_baseline_ms REAL NOT NULL, -- Gaussian centre for this host's RTT
+    response_latency_jitter_pct REAL NOT NULL DEFAULT 0.30, -- ±30% jitter factor
+    is_crown_jewel      BOOLEAN DEFAULT FALSE,  -- TRUE for high-value bait nodes
+    is_mutation_added   BOOLEAN DEFAULT FALSE,  -- TRUE if added by adaptive feedback
+    mutation_trigger    TEXT,                   -- Which trigger caused materialisation
+    services_json       TEXT NOT NULL,
+      -- e.g.: '[{"port":22,"protocol":"tcp","service":"ssh","banner":"OpenSSH_8.9p1"},
+      --         {"port":443,"protocol":"tcp","service":"https","cert_cn":"hostname"}]'
+    ad_object_json      TEXT,
+      -- NULL for non-AD hosts. Contains fake OU path, computer account DN.
+    is_synthetic        BOOLEAN DEFAULT TRUE,   -- Always TRUE. Ethical compliance field.
+    created_at          TEXT NOT NULL
+  );
+
+  INDEX: fake_hosts_ip_idx ON fake_hosts(ip_address)
+  INDEX: fake_hosts_hostname_idx ON fake_hosts(hostname)
+
+────────────────────────────────────────────────────────────────────────────────
+TABLE 7: host_interactions
+────────────────────────────────────────────────────────────────────────────────
+Tracks every meaningful interaction between the attacker and a fake host.
+Distinct from raw commands — one command may target multiple hosts, and some
+probe sequences are aggregated into a single interaction record.
+
+  CREATE TABLE host_interactions (
+    interaction_pk      INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_fk          INTEGER NOT NULL REFERENCES sessions(session_pk),
+    host_fk             INTEGER NOT NULL REFERENCES fake_hosts(host_pk),
+    first_interaction_at TEXT NOT NULL,
+    last_interaction_at  TEXT,
+    interaction_type    TEXT NOT NULL,
+      -- ENUM: 'probe'|'port_scan'|'banner_grab'|'authenticated'|
+      --       'data_access'|'file_enumeration'|'command_execution'
+    access_level        TEXT NOT NULL DEFAULT 'none',
+      -- ENUM: 'none'|'probe'|'unauthenticated'|'authenticated'|'admin'
+    interaction_depth   TEXT NOT NULL DEFAULT 'shallow',
+      -- ENUM: 'shallow'|'medium'|'deep'
+    commands_on_host    INTEGER DEFAULT 0,      -- Count of commands targeting this host
+    credential_used     TEXT,
+      -- Synthetic credential string attempted, e.g. 'svc_backup:P@ssw0rd123'
+      -- Always a synthetic value. Never a real credential.
+    credential_is_synthetic BOOLEAN DEFAULT TRUE,
+    data_access_attempted BOOLEAN DEFAULT FALSE,
+    data_exfil_attempted  BOOLEAN DEFAULT FALSE,
+    node_status_at_end  TEXT
+      -- ENUM: 'probed'|'accessed'|'exfil_attempted' — synced to dashboard node colour
+  );
+
+  INDEX: host_interactions_session_fk_idx ON host_interactions(session_fk)
+  INDEX: host_interactions_host_fk_idx ON host_interactions(host_fk)
+
+────────────────────────────────────────────────────────────────────────────────
+TABLE 8: iocs (Indicators of Compromise)
+────────────────────────────────────────────────────────────────────────────────
+Captures real attacker-controlled infrastructure observables — the only REAL
+(non-synthetic) data PHANTASM stores. C2 IPs, payload hashes, domains,
+tool identifiers captured live from attacker activity.
+
+  CREATE TABLE iocs (
+    ioc_pk              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_fk          INTEGER NOT NULL REFERENCES sessions(session_pk),
+    command_fk          INTEGER REFERENCES commands(command_pk),
+    observed_at         TEXT NOT NULL,
+    ioc_type            TEXT NOT NULL,
+      -- ENUM: 'c2_ip'|'c2_domain'|'c2_url'|'payload_hash_sha256'|
+      --       'payload_hash_md5'|'file_path'|'user_agent'|'tool_name'
+    ioc_value           TEXT NOT NULL,          -- The raw observable value
+    ioc_port            INTEGER,                -- Relevant for c2_ip type
+    ioc_protocol        TEXT,                   -- e.g.: 'https'|'dns'|'icmp'
+    context_command     TEXT,
+      -- The attacker command that revealed this IOC
+      -- e.g.: 'curl http://45.xxx.xxx.12/beacon'
+    is_synthetic        BOOLEAN NOT NULL DEFAULT FALSE,
+      -- CRITICAL: IOCs are REAL. This field should ALWAYS be FALSE.
+      -- The only table in PHANTASM where is_synthetic can be FALSE.
+    confidence          REAL DEFAULT 1.0,       -- 1.0 = directly observed; <1.0 = inferred
+    tlp_classification  TEXT DEFAULT 'TLP:AMBER',
+      -- Traffic Light Protocol for threat sharing. Default AMBER (org-internal).
+    shared_with_cert    BOOLEAN DEFAULT FALSE    -- Whether submitted to CERT-In MISP
+  );
+
+  INDEX: iocs_session_fk_idx ON iocs(session_fk)
+  INDEX: iocs_ioc_type_value_idx ON iocs(ioc_type, ioc_value)
+      -- Enables cross-session IOC correlation in v2.0
+
+────────────────────────────────────────────────────────────────────────────────
+TABLE 9: synthetic_data_objects
+────────────────────────────────────────────────────────────────────────────────
+Central registry of all synthetic data objects generated and served to the
+attacker during the session. This is the most complex and critical table for
+understanding PHANTASM's deception mechanics — specifically how synthetic data
+is dynamically generated, updated, and version-controlled during an active
+breach attempt. See Section 5 for full mutation lifecycle documentation.
+
+  CREATE TABLE synthetic_data_objects (
+    sdo_pk              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_fk          INTEGER REFERENCES sessions(session_pk),
+      -- NULL for static base objects (pre-populated on system init)
+    object_type         TEXT NOT NULL,
+      -- ENUM: 'ad_user'|'ad_group'|'ad_computer'|'file_listing'|'db_record'|
+      --       'db_schema'|'network_share'|'kerberos_ticket'|'registry_key'|
+      --       'process_listing'|'scheduled_task'|'ssl_certificate'|'http_response'
+    generation_trigger  TEXT,
+      -- ENUM: 'static_init'|'first_probe'|'authenticated_access'|
+      --       'apt_grade_detected'|'credential_access_phase'|'db_query_received'|
+      --       'exfil_attempt_detected'
+      -- NULL for static_init objects
+    served_to_attacker  BOOLEAN DEFAULT FALSE,
+    served_at           TEXT,
+    parent_host_fk      INTEGER REFERENCES fake_hosts(host_pk),
+    object_schema_version INTEGER DEFAULT 1,
+      -- Incremented on each synthetic mutation of this object
+    object_data_json    TEXT NOT NULL,
+      -- The synthetic content. Structure varies by object_type. See Section 4.
+    is_synthetic        BOOLEAN DEFAULT TRUE,   -- Always TRUE.
+    believability_score REAL DEFAULT 0.85,
+      -- Internal quality metric [0.0,1.0]. Objects with score < 0.70 are
+      -- regenerated before serving. Computed by plausibility heuristics.
+    was_queried         BOOLEAN DEFAULT FALSE,  -- Attacker actually accessed this object
+    query_count         INTEGER DEFAULT 0,      -- How many times attacker accessed it
+    last_queried_at     TEXT,
+    mutation_count      INTEGER DEFAULT 0,
+      -- How many times this object was updated during the session
+      -- See Section 5: Synthetic Data Mutation Protocol
+    parent_sdo_pk       INTEGER REFERENCES synthetic_data_objects(sdo_pk),
+      -- For mutation chains: new version references previous version
+    created_at          TEXT NOT NULL
+  );
+
+  INDEX: sdo_session_fk_type_idx ON synthetic_data_objects(session_fk, object_type)
+  INDEX: sdo_served_idx ON synthetic_data_objects(served_to_attacker, served_at)
+
+────────────────────────────────────────────────────────────────────────────────
+TABLE 10: ad_synthetic_users
+────────────────────────────────────────────────────────────────────────────────
+Denormalised store for the fake Active Directory user pool. Minimum 100 users
+generated at system init. Additional users generated on demand when attacker
+queries exceed the pool. Indian name dataset via Faker's in_IN locale.
+
+  CREATE TABLE ad_synthetic_users (
+    user_pk             INTEGER PRIMARY KEY AUTOINCREMENT,
+    sdo_fk              INTEGER REFERENCES synthetic_data_objects(sdo_pk),
+    sam_account_name    TEXT NOT NULL UNIQUE,   -- e.g.: 'r.sharma' | 'priya.nair'
+    display_name        TEXT NOT NULL,          -- e.g.: 'Rajesh Kumar Sharma'
+    user_principal_name TEXT NOT NULL,          -- e.g.: 'r.sharma@bankname-internal.local'
+    distinguished_name  TEXT NOT NULL,
+      -- e.g.: 'CN=Rajesh Kumar Sharma,OU=Operations,DC=bankname-internal,DC=local'
+    department          TEXT NOT NULL,
+      -- e.g.: 'Core Banking Operations'|'IT Infrastructure'|'SWIFT Operations'
+    employee_id         TEXT NOT NULL,          -- e.g.: 'EMP-2021-04477'
+    title               TEXT NOT NULL,          -- e.g.: 'Senior Systems Analyst'
+    manager_sam         TEXT,                   -- SAM of synthetic manager
+    account_created     TEXT NOT NULL,          -- Synthetic creation date
+    last_logon          TEXT,                   -- Synthetic last logon timestamp
+    password_last_set   TEXT NOT NULL,
+    is_privileged       BOOLEAN DEFAULT FALSE,  -- TRUE for svc_ accounts, admins
+    is_service_account  BOOLEAN DEFAULT FALSE,
+    password_hash_ntlm  TEXT,
+      -- Synthetic NTLM hash. CRITICAL: Never a real hash. Generated from
+      -- a deterministic seed using hashlib to produce a plausible 32-char hex.
+      -- e.g.: 'aad3b435b51404eeaad3b435b51404ee' (empty-hash pattern) or
+      -- a seeded fake: hash of (session_id + username + "SYNTHETIC_SALT")
+    password_plaintext_fake TEXT,
+      -- The synthetic plaintext PHANTASM serves in fake Mimikatz output.
+      -- Pattern: mix of common password templates: 'P@ssw0rd123', 'BankName@2024'
+      -- ALWAYS marked synthetic. NEVER a real credential.
+    is_synthetic        BOOLEAN DEFAULT TRUE,
+    groups_json         TEXT,
+      -- e.g.: '["Domain Users","Operations","VPN-Access"]'
+    was_dumped          BOOLEAN DEFAULT FALSE,  -- Attacker ran credential dump and got this
+    dumped_in_session   INTEGER REFERENCES sessions(session_pk)
+  );
+
+  INDEX: ad_users_sam_idx ON ad_synthetic_users(sam_account_name)
+  INDEX: ad_users_privileged_idx ON ad_synthetic_users(is_privileged)
+
+────────────────────────────────────────────────────────────────────────────────
+TABLE 11: db_synthetic_records
+────────────────────────────────────────────────────────────────────────────────
+Stores synthetic database content served when attacker queries the fake
+FINACLE-PROD-DB, customer_data_warehouse, or HR database nodes.
+Content generated by Faker with Indian financial data patterns.
+
+  CREATE TABLE db_synthetic_records (
+    record_pk           INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_fk          INTEGER REFERENCES sessions(session_pk),
+    host_fk             INTEGER NOT NULL REFERENCES fake_hosts(host_pk),
+    db_name             TEXT NOT NULL,          -- e.g.: 'FINACLE_PROD' | 'HR_SYSTEM'
+    table_name          TEXT NOT NULL,          -- e.g.: 'customer_accounts' | 'employees'
+    record_data_json    TEXT NOT NULL,
+      -- The full synthetic row data. Example for customer_accounts:
+      -- {"account_no":"31729847602","name":"Priya Subramaniam",
+      --  "balance":"284750.00","ifsc":"SBIN0001234","pan":"ABCPS1234F"}
+      -- All values synthetic. PAN format valid but non-existent.
+    generation_trigger  TEXT,
+      -- 'static_preload'|'query_received'|'escalation_apt_grade'
+    was_queried         BOOLEAN DEFAULT FALSE,
+    query_sql           TEXT,                   -- The actual SQL query the attacker ran
+    exfil_attempted     BOOLEAN DEFAULT FALSE,
+    is_synthetic        BOOLEAN DEFAULT TRUE,
+    created_at          TEXT NOT NULL
+  );
+
+────────────────────────────────────────────────────────────────────────────────
+TABLE 12: topology_mutations
+────────────────────────────────────────────────────────────────────────────────
+Immutable audit log of every adaptive topology mutation — when it fired, why,
+and what changed. Critical for demonstrating PHANTASM's core innovation.
+
+  CREATE TABLE topology_mutations (
+    mutation_pk         INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_fk          INTEGER NOT NULL REFERENCES sessions(session_pk),
+    triggered_at        TEXT NOT NULL,
+    trigger_condition   TEXT NOT NULL,
+      -- Human-readable trigger name. One of:
+      -- 'apt_grade_expertise_threshold' — expertise_level crossed apt_grade
+      -- 'exfiltration_objective_dominant' — data_exfil objective > 0.65
+      -- 'credential_access_phase_detected' — ≥3 credential techniques observed
+      -- 'ransomware_pattern_detected' — shadow copy delete + file enum detected
+      -- 'insider_threat_pattern' — HR DB access + low skill + slow pace
+      -- 'manual_demo_override' — presenter clicked demo control button
+    trigger_profile_snapshot_fk INTEGER REFERENCES operator_profiles(profile_pk),
+    mutation_type       TEXT NOT NULL,
+      -- ENUM: 'materialise_crown_jewel'|'expose_smb_share'|'add_backup_server'|
+      --       'add_swift_node'|'add_hr_database'|'add_uid_api'|'add_core_banking_cluster'
+    nodes_added_json    TEXT NOT NULL,
+      -- Array of host configs for new nodes:
+      -- [{"hostname":"FINACLE-PROD-DB","ip":"192.168.30.11","role":"core_banking"}]
+    pre_mutation_node_count INTEGER NOT NULL,
+    post_mutation_node_count INTEGER NOT NULL,
+    mutation_latency_ms INTEGER,                -- How long the materialisation took
+    dashboard_notified  BOOLEAN DEFAULT FALSE,  -- TRUE once WS crown jewel event sent
+    rate_limit_applied  BOOLEAN DEFAULT FALSE
+      -- TRUE if this mutation was delayed by the 120-second rate limit
+  );
+
+  INDEX: mutations_session_fk_idx ON topology_mutations(session_fk)
+
+────────────────────────────────────────────────────────────────────────────────
+TABLE 13: stress_timeline
+────────────────────────────────────────────────────────────────────────────────
+High-frequency time-series of inter-command interval data. Separate table
+to avoid bloating the commands table with analytical derivatives.
+Written by the flush worker every 5 seconds. Used by dossier engine and
+the stress chart Recharts component via the API.
+
+  CREATE TABLE stress_timeline (
+    stress_pk           INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_fk          INTEGER NOT NULL REFERENCES sessions(session_pk),
+    command_fk          INTEGER NOT NULL REFERENCES commands(command_pk),
+    recorded_at         TEXT NOT NULL,
+    session_elapsed_s   INTEGER NOT NULL,
+    ici_ms              INTEGER NOT NULL,        -- Inter-command interval (this → prev)
+    ici_moving_avg_ms   REAL,                    -- 5-command rolling average ICI
+    stress_state        TEXT NOT NULL DEFAULT 'normal',
+      -- ENUM: 'normal'|'stress_onset'|'sustained_stress'|'pause'|'automation'
+    stress_annotation   TEXT
+      -- Human-readable event annotation for dashboard markers:
+      -- e.g.: 'Stress onset — cadence +340%' | 'Long pause — 47s'
+  );
+
+  INDEX: stress_session_fk_idx ON stress_timeline(session_fk)
+  INDEX: stress_elapsed_idx ON stress_timeline(session_fk, session_elapsed_s)
+
+────────────────────────────────────────────────────────────────────────────────
+TABLE 14: dossiers
+────────────────────────────────────────────────────────────────────────────────
+Archive of all generated intelligence dossiers. The structured JSON and
+LLM-generated narrative are stored here in addition to filesystem paths,
+enabling future search, correlation, and federated sharing (v3.0).
+
+  CREATE TABLE dossiers (
+    dossier_pk          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_fk          INTEGER NOT NULL REFERENCES sessions(session_pk),
+    generated_at        TEXT NOT NULL,
+    generation_duration_s REAL,                 -- How long dossier engine took
+    generation_method   TEXT NOT NULL DEFAULT 'llm_api',
+      -- ENUM: 'llm_api'|'cached_fallback'
+      -- 'cached_fallback' used when API is unreachable during demo
+    session_id_ref      TEXT NOT NULL,          -- Denorm: session_id for quick lookup
+    dossier_full_json   TEXT NOT NULL,          -- Complete JSON schema per PRD Section 7.1
+    narrative_text      TEXT,                   -- LLM-generated analyst narrative
+    pdf_path            TEXT,                   -- Filesystem path to WeasyPrint PDF
+    cert_in_mis_json    TEXT,                   -- CERT-In MIS format fields only
+    top_technique_id    TEXT,                   -- Most frequently observed technique
+    top_apt_attribution TEXT,                   -- Top ranked APT group attribution
+    apt_confidence      REAL,                   -- Attribution confidence score
+    ioc_count           INTEGER DEFAULT 0,      -- Total IOCs in this dossier
+    tlp_classification  TEXT DEFAULT 'TLP:AMBER',
+    submitted_to_cert   BOOLEAN DEFAULT FALSE,
+    submission_timestamp TEXT
+  );
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3: REDIS KEY SCHEMA — IN-MEMORY PIPELINE STATE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Redis serves as the real-time nervous system. All keys are session-scoped
+using the session_id prefix to prevent cross-session data contamination.
+
+PUB/SUB CHANNELS (ephemeral — no persistence):
+
+  sm:events              ShadowMesh → MirrorTrap
+    Payload: {"type":"command","session_id":"PH-...","seq":42,
+              "timestamp":"...","raw_command":"nmap -sV 192.168.10.0/24",
+              "source_ip":"192.168.1.5","target_ip":"192.168.10.0",
+              "target_port":null,"ici_ms":4200}
+
+  mt:profile             MirrorTrap → FeedbackController + APIServer
+    Payload: {"session_id":"PH-...","command_count":45,"expertise_level":"apt_grade",
+              "expertise_confidence":0.87,"primary_objective":"espionage",
+              "objective_confidence":0.71,"operational_state":"stressed",
+              "attribution":[{"group":"APT-36","score":0.61}],
+              "avg_ici_ms":2100,"stress_events":3}
+
+  sm:mutations           FeedbackController → ShadowMesh
+    Payload: {"session_id":"PH-...","mutation_type":"materialise_crown_jewel",
+              "trigger":"apt_grade_expertise_threshold",
+              "nodes_to_add":[{"hostname":"FINACLE-PROD-DB","ip":"192.168.30.11",
+                               "role":"core_banking","os":"Windows Server 2019",
+                               "services":[{"port":1433,"service":"mssql"}]}]}
+
+  phantasm:dashboard     APIServer → Frontend WebSocket bridge
+    All dashboard-bound events routed here after enrichment by api_server.py
+
+KEYED HASHES (SET/GET with TTL):
+
+  session:{session_id}:state
+    HASH — current session lifecycle state
+    Fields: state, start_time, command_count, phase, last_update
+    TTL: session_duration + 300s buffer
+
+  session:{session_id}:profile:current
+    HASH — latest operator profile (point-in-time, overwritten each update)
+    Fields: all 4 profile dimensions, timing stats, engagement_score
+    TTL: 3600s
+
+  session:{session_id}:topology:current
+    STRING (JSON) — serialised current topology state
+    Updated each time a mutation fires. Read by dashboard on reconnect.
+    TTL: 3600s
+
+  session:{session_id}:ici:history
+    LIST (RPUSH/LTRIM) — sliding window of last 100 ICI values in ms
+    Used by MirrorTrap for rolling average computation without SQLite query
+    TTL: 3600s
+
+  mutation:rate_limit:{session_id}
+    STRING — timestamp of last mutation
+    TTL: 120s (the rate limit window)
+    Checked by FeedbackController before issuing any mutation directive.
+    If key exists: mutation is queued, not dropped. Requeued after TTL expires.
+
+  dossier:{session_id}:status
+    STRING — 'pending'|'generating'|'ready'|'error'
+    TTL: 3600s. Polled by frontend before WebSocket dossier_ready event arrives.
+
+  phantasm:system:health
+    HASH — last heartbeat from each component
+    Fields: shadowmesh_ts, mirrortrap_ts, feedback_ts, api_ts
+    Updated every 5 seconds by each component. Dashboard health dots read this.
+    If delta > 15s: component shown as degraded (amber). > 30s: red.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4: JSON OBJECT FORMATS — TOPOLOGY AND SYNTHETIC DATA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TOPOLOGY JSON (stored in topology_snapshots.topology_json):
+
+  {
+    "version": 3,
+    "generated_at": "2026-08-22T14:30:12.441Z",
+    "domain": "bankname-internal.local",
+    "subnets": {
+      "user_vlan": "192.168.10.0/24",
+      "server_vlan": "192.168.20.0/24",
+      "mgmt_vlan": "192.168.30.0/24"
+    },
+    "nodes": [
+      {
+        "id": "host_001",
+        "hostname": "dc-auth-prod.bankname-internal.local",
+        "ip": "192.168.10.31",
+        "role": "domain_controller",
+        "os": "Windows Server 2019 Standard",
+        "ttl": 128,
+        "tcp_window": 65535,
+        "latency_baseline_ms": 1.8,
+        "latency_jitter_pct": 0.30,
+        "services": [
+          {"port": 53, "proto": "tcp", "service": "dns", "banner": null},
+          {"port": 88, "proto": "tcp", "service": "kerberos", "banner": null},
+          {"port": 389, "proto": "tcp", "service": "ldap", "banner": "Windows-LDAP/6.1"},
+          {"port": 445, "proto": "tcp", "service": "smb", "banner": "Windows SMB"}
+        ],
+        "is_crown_jewel": false,
+        "is_mutation_added": false,
+        "dashboard_state": "default"
+      }
+    ],
+    "edges": [
+      {"source": "host_001", "target": "host_007", "type": "ldap_auth"},
+      {"source": "host_003", "target": "host_001", "type": "kerberos"}
+    ]
+  }
+
+DB RECORD SYNTHETIC FORMAT (db_synthetic_records.record_data_json):
+
+  customer_accounts table:
+  {
+    "account_no": "31729847602",
+    "customer_name": "Priya Ramesh Subramaniam",
+    "dob": "1987-04-12",
+    "mobile": "9XXXXXXXXX",  -- Last 9 digits masked for internal consistency
+    "email": "priya.subramaniam@gmail.com",
+    "account_type": "SAVINGS",
+    "balance": "284750.42",
+    "branch_ifsc": "SBIN0001234",
+    "branch_name": "MG Road, Bengaluru",
+    "pan": "ABCPS1234F",
+    "kyc_status": "VERIFIED",
+    "last_transaction": "2026-08-20"
+  }
+
+  All PAN numbers: structurally valid format (5 alpha + 4 num + 1 alpha), but
+  generated via Faker with verified non-real number sets. No real individual
+  can be identified from any synthetic data object.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 5: SYNTHETIC DATA MUTATION PROTOCOL
+           How PHANTASM Updates Fake Data When the Hacker Is Active Inside
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This section is the operational heart of PHANTASM's deception mechanics. The
+naive assumption — that synthetic data is generated once at boot and served
+statically — is deliberately wrong and exploitable. A sophisticated APT operator
+probing the same dataset repeatedly will notice temporal inconsistencies in a
+static synthetic dataset (creation timestamps, sequence numbers, log entries
+that never age). PHANTASM counters this with a living synthetic data system:
+data that breathes, ages, and evolves in response to attacker behaviour.
+
+5.1 MUTATION TRIGGERS AND CONDITIONS
+──────────────────────────────────────
+
+Synthetic data mutations are driven by three independent trigger classes:
+
+TRIGGER CLASS A — Temporal Aging (Passive, Continuous)
+  Every 60 seconds during an active session, a background coroutine in
+  session_mgr.py runs the temporal aging pass:
+  - Updates last_logon timestamps on a random sample (5–12%) of ad_synthetic_users
+    to reflect realistic background authentication activity.
+  - Inserts 3–7 new db_synthetic_records into the customer_accounts pool with
+    synthetic timestamps in the current hour (simulating live banking transactions).
+  - Appends fake process entries to any process_listing objects that have already
+    been served to the attacker, simulating ongoing system activity.
+  - Rotates Windows Event Log synthetic entries to reflect the passage of time.
+
+  Rationale: A real Windows domain controller processes thousands of Kerberos
+  authentication events per hour. A static fake DC whose event log stops
+  updating the moment the attacker first dumps it is an immediate honeypot tell
+  for any APT operator who checks logs a second time after credential escalation.
+
+TRIGGER CLASS B — Query-Responsive Generation (Active, On-Demand)
+  When the attacker issues a query that requests data not yet in the synthetic
+  pool, the system must synthesise a response in-flight within the protocol
+  timeout window. This path is performance-critical.
+
+  SQL query received against FINACLE-PROD-DB:
+    "SELECT TOP 10 * FROM customer_accounts WHERE balance > 100000"
+
+  Execution path in db_emulator.py:
+    1. Parse query against known schema (SQLite-backed fake schema registered at init)
+    2. Check db_synthetic_records for existing matching rows
+    3. If insufficient rows exist: call synthetic_generator.generate_db_records(
+         table="customer_accounts", count=50, constraints={"balance__gt": 100000})
+    4. Insert generated records to db_synthetic_records with generation_trigger=
+       'query_received'
+    5. Return first 10 rows as a structurally valid MSSQL TDS protocol response
+    6. Log interaction to host_interactions and commands tables
+
+  LDAP query against fake AD:
+    "Get-ADUser -Filter * -Properties Department"
+
+  Execution path in ad_emulator.py:
+    1. Check ad_synthetic_users pool — base pool of 100 users always present
+    2. If attacker is querying all users: serve all 100 from pool
+    3. If attacker queries by specific attribute not indexed: generate 10–30
+       additional users matching the filter and add to pool
+    4. Each generated user receives a parent_sdo_pk linking to the base AD
+       object, creating a provenance chain in synthetic_data_objects
+
+  Kerberos TGT/TGS exchange:
+    1. Attacker attempts Kerberos authentication as a specific user
+    2. ad_emulator checks if sam_account_name exists in ad_synthetic_users
+    3. If not: on-the-fly generate the requested user account with plausible
+       attributes matching the requested username's naming convention
+    4. Return a structurally correct (but cryptographically unverifiable) TGT
+    5. Mark user as was_dumped=TRUE if this was triggered by a Mimikatz pass
+
+TRIGGER CLASS C — Profile-Adaptive Escalation (Reactive, Operator-Profile-Driven)
+  This is the most sophisticated mutation class — directly driven by MirrorTrap's
+  operator profile. When the FeedbackController fires a topology mutation, it also
+  triggers a parallel synthetic data escalation event:
+
+  WHEN expertise_level = 'apt_grade' AND primary_objective = 'espionage':
+    ► Generate 200+ customer records in FINACLE-PROD-DB with higher balance ranges
+      (APT espionage ops targeting BFSI want high-value account data)
+    ► Populate SWIFT-INTERFACE-02 with synthetic SWIFT MT103 message stubs
+    ► Create fake data exports in the file_server (*.xlsx dumps with account data)
+    ► Add privileged service accounts to ad_synthetic_users with names matching
+      payment processing workflows: 'svc_finacle_prod', 'svc_swift_admin'
+    ► Generate a fake database backup file listing on the backup_server
+
+  WHEN primary_objective = 'ransomware':
+    ► Populate file_server shares with high-value file extensions (*.docx, *.xlsx,
+      *.bak, *.sql) to maximise attacker's file enumeration return
+    ► Surface a fake vssadmin output showing accessible Volume Shadow Copies
+    ► Generate synthetic backup jobs in the scheduled_task objects
+    ► Create fake SQL backup files (.bak) accessible via SMB share
+
+  WHEN operational_state = 'disoriented' AND expertise_level = 'intermediate':
+    ► Simplify the directory tree served to next query — reduce depth
+    ► Surface more obvious "interesting" file names (passwords.xlsx, creds.txt)
+      to re-engage an attacker who is losing interest
+    ► Generate a fake recently modified file that looks like a credential store
+
+5.2 MUTATION EXECUTION PIPELINE
+─────────────────────────────────
+
+The synthetic data mutation pipeline operates as an async coroutine chain:
+
+  STEP 1 — Trigger detected (FeedbackController or session_mgr aging pass)
+  STEP 2 — SyntheticDataMutator.plan_mutation(trigger, current_profile)
+            Returns a MutationPlan object: list of GenerationTask records
+  STEP 3 — Tasks dispatched to async worker pool (asyncio.gather, max 8 workers)
+  STEP 4 — Each GenerationTask calls appropriate Faker-based generator module:
+            FakeADGenerator | FakeDBGenerator | FakeFileSystemGenerator |
+            FakeProcessGenerator | FakeNetworkShareGenerator
+  STEP 5 — Generated objects written to synthetic_data_objects and type-specific
+            tables (ad_synthetic_users, db_synthetic_records, etc.)
+  STEP 6 — Object PKs registered in Redis hash:
+            SET session:{id}:synthetic:available:{object_type} [list of PKs]
+  STEP 7 — Service emulators query Redis for available objects when next request
+            arrives. Never generate at response time — always pre-generated.
+  STEP 8 — On object serve: served_to_attacker=TRUE, served_at=NOW(), Redis
+            key updated to remove served PK from available list
+
+  MUTATION RATE POLICY:
+    - Class A (temporal aging): every 60s, no rate limit
+    - Class B (on-demand): immediate, within 2 seconds of query arrival
+    - Class C (profile-adaptive): rate limited to once per mutation cycle
+      (120-second minimum interval, same as topology mutation rate limit)
+    - All mutations logged to synthetic_data_objects with mutation_count++
+    - Previous object version retained as parent_sdo_pk chain (immutable audit)
+
+5.3 CONSISTENCY ENFORCEMENT
+────────────────────────────
+
+Cross-object consistency is the hardest problem in synthetic data management.
+If an attacker queries the AD user list and gets a user named 'svc_finacle_prod',
+then queries the FINACLE-PROD-DB access logs, they expect to see that same account
+in the connection log. Failure to maintain this consistency is a primary
+sophisticated-attacker honeypot detection vector.
+
+PHANTASM enforces consistency through the following mechanisms:
+
+  SHARED IDENTITY REGISTRY:
+    All named entities (usernames, hostnames, IPs, employee IDs) are registered
+    in a session-scoped in-memory dict when first generated. Any subsequent
+    generation of a related object must reference this registry before generating
+    new names. If 'r.sharma' was served in an AD query, the next DB access log
+    must reference 'BANKNAME-INT\r.sharma' — not a freshly generated username.
+
+  TEMPORAL COHERENCE VALIDATOR:
+    Before serving any synthetic object, the validator checks that all
+    timestamps are internally consistent:
+      - File modification times must not be in the future
+      - Last logon times must be after account creation times
+      - Event log entries must be in chronological order
+      - Database transaction timestamps must increase monotonically
+    Any inconsistency triggers a rewrite pass before serving.
+
+  SCHEMA INTEGRITY CHECKS:
+    All synthetic database records are validated against the fake schema before
+    serving. Foreign key relationships in the fake DB (e.g., account_no in
+    transaction_log must exist in customer_accounts) are enforced by the
+    FakeDBGenerator before writing to db_synthetic_records.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6: DATABASE INITIALISATION SEQUENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+On PHANTASM system start (before any session begins), the following init
+sequence populates the base synthetic data pool:
+
+  Phase 1 — Schema creation (idempotent, CREATE TABLE IF NOT EXISTS)
+    All 14 tables created. Indices created. WAL mode enabled. Pragmas set:
+    PRAGMA journal_mode=WAL;
+    PRAGMA synchronous=NORMAL;  -- Faster than FULL; safe with WAL
+    PRAGMA cache_size=-64000;   -- 64MB SQLite page cache
+    PRAGMA foreign_keys=ON;
+
+  Phase 2 — Base topology generation (topology_snapshots, fake_hosts)
+    ShadowMesh procedurally generates 15–18 hosts covering all required roles.
+    Snapshot stored as type='base' with session_fk=NULL.
+    Fake host records populated for all generated nodes.
+
+  Phase 3 — AD synthetic pool generation (ad_synthetic_users)
+    Faker (locale='en_IN') generates 100 synthetic AD users.
+    10 privileged accounts, 5 service accounts.
+    All entries written to ad_synthetic_users and synthetic_data_objects.
+
+  Phase 4 — Base DB record pool (db_synthetic_records)
+    100 customer_accounts records generated across 3 fake banks.
+    50 employee records for HR system.
+    200 transaction_log records spanning last 30 days (synthetic).
+
+  Phase 5 — SSL certificate generation (cryptography library)
+    Self-signed certificates generated for each HTTPS-serving host.
+    CN matches declared hostname. Validity: 1 year from current date.
+    Stored in synthetic_data_objects as type='ssl_certificate'.
+
+  Phase 6 — Redis warm-up
+    System health heartbeat keys initialised.
+    Available synthetic object PKs loaded into Redis lists for each type.
+    Session counter initialised: SET phantasm:session:counter 0
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7: KEY DATABASE QUERIES — DOSSIER ENGINE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The dossier engine (de_engine.py) executes the following queries on session end
+to assemble the structured JSON passed to the LLM prompt:
+
+  -- 1. Session overview
+  SELECT duration_seconds, total_commands, unique_techniques, engagement_score,
+         dwell_multiplier, attacker_source_ip, entry_protocol
+  FROM sessions WHERE session_id = ?;
+
+  -- 2. Techniques observed (aggregated, ordered by frequency)
+  SELECT ct.technique_id, ct.technique_name, ct.tactic,
+         MIN(c.session_elapsed_ms)/1000 AS first_observed_s,
+         COUNT(*) AS occurrence_count,
+         GROUP_CONCAT(c.raw_command, '|||') AS command_list
+  FROM command_techniques ct
+  JOIN commands c ON ct.command_fk = c.command_pk
+  JOIN sessions s ON c.session_fk = s.session_pk
+  WHERE s.session_id = ?
+  GROUP BY ct.technique_id
+  ORDER BY occurrence_count DESC;
+
+  -- 3. Final operator profile (last snapshot before session end)
+  SELECT * FROM operator_profiles
+  WHERE session_fk = (SELECT session_pk FROM sessions WHERE session_id = ?)
+  ORDER BY snapshot_at DESC LIMIT 1;
+
+  -- 4. Stress events timeline
+  SELECT session_elapsed_s, ici_ms, stress_state, stress_annotation
+  FROM stress_timeline
+  WHERE session_fk = (SELECT session_pk FROM sessions WHERE session_id = ?)
+  AND stress_state != 'normal'
+  ORDER BY session_elapsed_s;
+
+  -- 5. IOCs
+  SELECT ioc_type, ioc_value, ioc_port, ioc_protocol, context_command, confidence
+  FROM iocs
+  WHERE session_fk = (SELECT session_pk FROM sessions WHERE session_id = ?)
+  ORDER BY ioc_type;
+
+  -- 6. Assets accessed (hosts with meaningful interaction)
+  SELECT fh.hostname, fh.ip_address, fh.host_role,
+         hi.interaction_type, hi.access_level, hi.interaction_depth,
+         hi.commands_on_host, hi.data_exfil_attempted
+  FROM host_interactions hi
+  JOIN fake_hosts fh ON hi.host_fk = fh.host_pk
+  WHERE hi.session_fk = (SELECT session_pk FROM sessions WHERE session_id = ?)
+  AND hi.access_level != 'none'
+  ORDER BY hi.commands_on_host DESC;
+
+  -- 7. Topology mutations during session
+  SELECT trigger_condition, triggered_at, nodes_added_json, mutation_latency_ms
+  FROM topology_mutations
+  WHERE session_fk = (SELECT session_pk FROM sessions WHERE session_id = ?)
+  ORDER BY triggered_at;
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 8: CROSS-SESSION OPERATOR FINGERPRINT SCHEMA (V2.0 FORWARD DESIGN)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Included as forward-design for completeness. NOT required for hackathon build.
+Document now so the schema addition in v2.0 is non-breaking.
+
+  CREATE TABLE operator_fingerprints (
+    fingerprint_pk      INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_fk          INTEGER NOT NULL REFERENCES sessions(session_pk),
+    computed_at         TEXT NOT NULL,
+    fingerprint_vector  TEXT NOT NULL,
+      -- JSON array of 128 floats: [0.81, 0.23, ..., 0.67]
+      -- Computed from: tool_signature_weights (32D) + technique_preference_weights (48D)
+      -- + timing_profile (24D) + syntax_idiom_features (24D)
+    fingerprint_version TEXT DEFAULT 'v1.0',
+    similarity_matches_json TEXT
+      -- JSON array of matches from approximate nearest-neighbour search:
+      -- [{"session_id":"PH-2026-...","similarity":0.91,"match_rank":1}]
+  );
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 9: DATA INTEGRITY AND ETHICAL COMPLIANCE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SYNTHETIC DATA GUARANTEE:
+  Every table that contains generated data carries is_synthetic BOOLEAN DEFAULT TRUE.
+  The schema enforces this at the column default level. The iocs table is the sole
+  exception — it stores real attacker observables, and its is_synthetic defaults FALSE.
+  Any tooling that reads synthetic data tables MUST check is_synthetic before
+  processing, even though it should always be TRUE by construction.
+
+REAL DATA SCOPE:
+  PHANTASM stores the following real (non-synthetic) data:
+    - Attacker source IP and port (iocs table, sessions.attacker_source_ip)
+    - Raw command strings as issued by attacker (commands.raw_command)
+    - C2 callback IPs, domains, payload hashes (iocs table)
+    - Timestamps of all activity (all tables)
+  Nothing else in the system corresponds to real individuals, real accounts,
+  real credentials, or real network infrastructure.
+
+SYNTHETIC DATA MARKING CONVENTION:
+  All code that generates synthetic objects MUST tag them at creation time:
+    synthetic_data_objects.is_synthetic = TRUE   (always)
+    ad_synthetic_users.is_synthetic = TRUE       (always)
+    ad_synthetic_users.credential_is_synthetic = TRUE  (always)
+    db_synthetic_records.is_synthetic = TRUE     (always)
+  These flags are immutable post-creation. No UPDATE operation should ever
+  set is_synthetic to FALSE on these tables.
+
+CREDENTIAL SAFETY:
+  Synthetic password hashes in ad_synthetic_users.password_hash_ntlm are generated
+  as: hashlib.md5(f"{session_id}{username}PHANTASM_SYNTHETIC_SALT".encode()).hexdigest()
+  This produces a valid-format 32-char hex string that will fail any real
+  pass-the-hash attempt. The system never generates or stores real NTLM hashes.
+  The plaintext password_plaintext_fake field uses templates from a fixed pool
+  of well-known weak passwords (P@ssw0rd123, Admin@2024, etc.) — never patterns
+  that could coincide with real organisational password policies.
+
+================================================================================
+               PHANTASM DATABASE SCHEMA v1.0 — COMPLETE
+         "The attacker has nothing. We have everything."
+  SIH 2026 | VIT Vellore | Track: Blockchain & Cybersecurity
+  14 Tables | 2 Storage Tiers | 1 Living Deception Engine
+================================================================================

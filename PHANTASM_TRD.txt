@@ -1,0 +1,3029 @@
+================================================================================
+                    PHANTASM — TECHNICAL REQUIREMENTS DOCUMENT
+              Proactive Honeypot with Adaptive Network Topology
+                        and Attacker Signature Mapping
+
+                         TRD VERSION: 1.0 (AUTHORITATIVE)
+                         Classification: CONFIDENTIAL — TEAM USE ONLY
+                         Author: Systems Architecture, PHANTASM Core Team
+                         Institution: Vellore Institute of Technology, Vellore
+                         Hackathon: Smart India Hackathon 2026 — Internal Round
+                         Track: Blockchain & Cybersecurity
+                         Date: August 2026
+================================================================================
+
+  "The attacker has nothing. We have everything."
+
+  This document is the definitive technical specification for building
+  PHANTASM. Every architectural decision herein is grounded in the PRD's
+  functional requirements, the database schema, UI/UX specs, and website flow.
+  If the PRD asks "what must it do", this TRD answers "exactly how it does it."
+
+  Read this completely before writing any code.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  SECTION 1  —  System Overview and Architecture Summary
+  SECTION 2  —  Technology Stack: Definitive Versions and Justifications
+  SECTION 3  —  Project Repository Structure
+  SECTION 4  —  Environment, Networking, and OS Prerequisites
+  SECTION 5  —  Component 1: ShadowMesh Core (sm_core.py)
+  SECTION 6  —  Component 2: Service Emulation Library (sm_services/)
+  SECTION 7  —  Component 3: GAN Traffic Generator (sm_traffic_gan.py)
+  SECTION 8  —  Component 4: MirrorTrap Engine (mt_engine.py)
+  SECTION 9  —  Component 5: Feedback Controller (fc_controller.py)
+  SECTION 10 —  Component 6: Session Manager (session_mgr.py)
+  SECTION 11 —  Component 7: Dossier Engine (de_engine.py)
+  SECTION 12 —  Component 8: API Server (api_server.py)
+  SECTION 13 —  Component 9: Frontend Dashboard (React SPA)
+  SECTION 14 —  Storage Architecture: Redis Schema (Tier 1)
+  SECTION 15 —  Storage Architecture: SQLite Schema (Tier 2)
+  SECTION 16 —  APIs: All Endpoints Defined
+  SECTION 17 —  WebSocket Event Protocol
+  SECTION 18 —  AI/ML Pipeline: Models, Inference, and Quantisation
+  SECTION 19 —  LLM Integration: Claude API (Dossier Engine)
+  SECTION 20 —  Synthetic Data Generation System
+  SECTION 21 —  PDF Dossier Generation (WeasyPrint + Jinja2)
+  SECTION 22 —  Docker Compose Deployment
+  SECTION 23 —  Performance Budgets and Latency Contracts
+  SECTION 24 —  Error Handling and Fallback Strategy
+  SECTION 25 —  Testing Plan and Validation Criteria
+  SECTION 26 —  Security Constraints for PHANTASM Itself
+  SECTION 27 —  Data Integrity and Ethical Compliance
+  SECTION 28 —  Inter-Component Communication Map
+  SECTION 29 —  Build Order and Critical Path
+  SECTION 30 —  Configuration Management
+
+
+================================================================================
+SECTION 1 — SYSTEM OVERVIEW AND ARCHITECTURE SUMMARY
+================================================================================
+
+1.1 WHAT PHANTASM IS
+─────────────────────
+
+PHANTASM is a cognitive honeypot — a generative, adaptive, AI-powered
+deception platform that simulates an Indian BFSI enterprise network, profiles
+the human operator attacking it in real time, reshapes itself to maximise
+their engagement, and produces a CERT-In compliant threat intelligence
+dossier automatically when the session ends.
+
+It is deployed as a single-machine system on an Ubuntu 22.04 laptop.
+All components run locally. No cloud infrastructure is required during the demo.
+
+1.2 THREE LAYERS
+─────────────────
+
+  LAYER 1 — SHADOWMESH
+    What it is: A generative fake network that appears to be a real Indian
+    mid-tier bank's internal infrastructure. 15+ fake hosts across 3 subnets.
+    Packet-correct responses via NFQueue. Background traffic via pre-trained GAN.
+
+  LAYER 2 — MIRRORTRAP
+    What it is: A real-time AI profiling engine that reads every command the
+    attacker issues and builds a 4-dimensional psychological profile: expertise
+    level, inferred objective, operational state, and APT attribution.
+
+  LAYER 3 — ADAPTIVE FEEDBACK LOOP
+    What it is: A rule-based controller that reads MirrorTrap's profile and
+    mutates ShadowMesh topology dynamically — materialising crown jewel nodes
+    targeted at the specific attacker type detected, then generating a
+    CERT-In formatted PDF dossier the moment the session ends.
+
+1.3 END-TO-END DATA FLOW (SUMMARY)
+
+  Attacker sends probe packet
+    → NFQueue intercepts at kernel
+      → sm_core dispatches to service emulator
+        → Protocol-correct fake response returned to attacker
+          → Event published to Redis channel "sm:events"
+            → mt_engine consumes event, classifies command, updates profile
+              → Profile published to Redis "mt:profile"
+                → fc_controller evaluates triggers, optionally issues mutation
+                  → api_server bridges profile to WebSocket
+                    → React frontend renders animated update in <100ms
+  [Session Ends]
+    → session_mgr aggregates session record
+      → de_engine formats LLM prompt, calls Claude API
+        → Narrative returned, embedded in Jinja2 HTML template
+          → WeasyPrint renders PDF
+            → Dashboard receives dossier_ready event
+              → Analyst downloads and optionally prints
+
+
+================================================================================
+SECTION 2 — TECHNOLOGY STACK: DEFINITIVE VERSIONS AND JUSTIFICATIONS
+================================================================================
+
+2.1 BACKEND RUNTIME
+
+  Python 3.11.x
+    Why: asyncio improvements, faster CPython, required by Transformers 4.38+.
+    Install: apt install python3.11 python3.11-venv python3.11-dev
+
+  FastAPI 0.110.x
+    Why: async-native, built-in WebSocket support, Pydantic v2 models, auto
+    OpenAPI docs. Zero-config CORS. Fastest Python web framework for this use.
+    Install: pip install fastapi==0.110.0
+
+  Uvicorn 0.27.x
+    Why: ASGI server for FastAPI. Supports WebSocket. Low latency.
+    Install: pip install uvicorn[standard]==0.27.1
+
+  aiohttp 3.9.x
+    Why: Async HTTP client for Claude API calls with timeout control and retry.
+    Install: pip install aiohttp==3.9.3
+
+  asyncio (stdlib)
+    Why: All PHANTASM components are async. Single event loop per process.
+    No additional install.
+
+2.2 NETWORKING / PACKET ENGINE
+
+  Scapy 2.5.0
+    Why: The only Python library for crafting custom protocol packets at byte
+    level. Used for crafting fake SSH banners, SMB responses, ARP packets,
+    and the background traffic emission layer.
+    Install: pip install scapy==2.5.0
+
+  libnetfilter_queue (system library)
+    Why: Linux kernel netfilter hook that routes incoming packets to a userspace
+    Python process for custom handling and response. Required for ShadowMesh
+    to intercept and respond to Nmap probes without being a real OS.
+    Install: sudo apt install libnetfilter-queue-dev python3-dev
+    Python binding: pip install nfqueue-bindings==0.6
+
+    IMPORTANT: NFQueue requires root/CAP_NET_ADMIN. ShadowMesh process must
+    run as root or with sudo. This is acceptable for a controlled demo system.
+
+  impacket 0.11.0
+    Why: Microsoft protocol implementations (SMB2, LDAP, Kerberos) used as
+    reference and partial implementation basis for service emulators.
+    Install: pip install impacket==0.11.0
+
+2.3 MESSAGE QUEUE / STATE BUS
+
+  Redis 7.2.x (server, via Docker)
+    Why: Sub-millisecond pub/sub. All inter-component messaging goes through
+    Redis channels. Session state hashes. ICI sliding window lists. Mutation
+    rate limiting via key TTL.
+    Docker: redis:7.2-alpine (lightweight, production-quality)
+    Port: 6379 on localhost only.
+
+  redis-py 5.0.x (async client)
+    Why: asyncio-native Redis client with pub/sub coroutine support.
+    Install: pip install redis[asyncio]==5.0.1
+
+2.4 AI / ML STACK
+
+  PyTorch 2.2.x (CPU build)
+    Why: Required for loading fine-tuned BERT and DistilBERT weights.
+    CPU-only build because demo hardware is a laptop with no dedicated GPU.
+    Install: pip install torch==2.2.1 --index-url https://download.pytorch.org/whl/cpu
+
+  Hugging Face Transformers 4.38.x
+    Why: Load and run pre-trained BERT-base-uncased (fine-tuned for ATT&CK)
+    and DistilBERT-base-uncased (expertise classifier) from local weights.
+    Install: pip install transformers==4.38.2
+
+  ONNX Runtime 1.17.x
+    Why: Convert BERT/DistilBERT to ONNX format and run INT8-quantised
+    inference. Delivers 3-4x speedup on CPU vs raw PyTorch. CRITICAL for
+    meeting the <500ms per-command classification budget on laptop hardware.
+    Install: pip install onnxruntime==1.17.1
+    Convert: optimum-cli export onnx --model bert-base-uncased --task
+              text-classification ./bert_attack_onnx/
+
+  scikit-learn 1.4.x
+    Why: Cosine similarity computation for ATT&CK group attribution scoring.
+    TF-IDF vectorisation for command syntax idiom analysis.
+    Install: pip install scikit-learn==1.4.0
+
+  NumPy 1.26.x
+    Why: ICI (inter-command interval) rolling statistics. Profile vector
+    arithmetic. Background traffic statistical distribution sampling.
+    Install: pip install numpy==1.26.4
+
+  SciPy 1.12.x
+    Why: Gaussian distribution for response latency jitter. Timestamp
+    coherence checks. Statistical tests on timing profiles.
+    Install: pip install scipy==1.12.0
+
+2.5 DATABASE / PERSISTENCE
+
+  SQLite 3.x (system-bundled)
+    Why: Lightweight, single-file, zero-config, supports WAL mode for
+    concurrent async reads/writes. Perfect for single-machine deployment.
+    No separate database server process needed.
+    Location: /data/phantasm.db (bind-mounted Docker volume)
+
+  aiosqlite 0.20.x
+    Why: Async wrapper for SQLite that integrates with asyncio event loop.
+    Prevents SQLite writes from blocking the FastAPI server's async loop.
+    Install: pip install aiosqlite==0.20.0
+
+2.6 DOSSIER / REPORT GENERATION
+
+  Jinja2 3.1.x
+    Why: Templating engine for the HTML dossier template. Separates document
+    structure from data. Used to assemble the complete dossier HTML before
+    WeasyPrint renders it to PDF.
+    Install: pip install jinja2==3.1.3
+
+  WeasyPrint 60.x
+    Why: HTML/CSS to PDF renderer in pure Python. Supports complex print
+    layouts (headers, footers, page numbers, multi-column). Produces
+    professional A4 PDFs from PHANTASM's Jinja2 HTML template.
+    Install: pip install weasyprint==60.2
+    System deps: sudo apt install libpango-1.0-0 libpangoft2-1.0-0
+                  libharfbuzz0b libffi-dev
+
+2.7 FAKE DATA GENERATION
+
+  Faker 24.x
+    Why: Indian locale support (Faker('en_IN')) for generating realistic
+    Indian names, IDs, addresses, and BFSI-specific data. Used for
+    AD users, DB records, file system content.
+    Install: pip install Faker==24.2.0
+
+  cryptography 42.x
+    Why: Generate self-signed TLS certificates for each HTTPS-serving fake
+    host. Certificates use the fake hostname as CN. Required for SSL handshake
+    emulation that doesn't fail immediately.
+    Install: pip install cryptography==42.0.5
+
+2.8 FRONTEND STACK
+
+  React 18.2.x + Vite 5.1.x
+    Why: React 18 concurrent features for smooth animation priority. Vite 5
+    for <500ms hot-reload and optimised production bundle.
+    Init: npm create vite@5.1.0 phantasm-ui -- --template react
+    Install: npm install
+
+  D3.js 7.9.x
+    Why: Only library capable of the force-directed network graph with custom
+    node animations, directional edge drawing, and smooth re-simulation on
+    node addition. React owns the data; D3 owns the DOM inside the SVG.
+    Install: npm install d3@7.9.0
+
+  Socket.io-client 4.7.x
+    Why: WebSocket client with automatic reconnection, event namespacing,
+    and heartbeat management. Matches Socket.io on the FastAPI side via
+    python-socketio.
+    Install: npm install socket.io-client@4.7.4
+
+  python-socketio 5.11.x (backend Socket.io server)
+    Why: Integrates with FastAPI/ASGI for Socket.io protocol support.
+    Install: pip install python-socketio==5.11.1
+
+  Recharts 2.12.x
+    Why: Declarative React chart library for the stress index line chart and
+    profile timeline. Integrates with React state for live updates.
+    Install: npm install recharts@2.12.2
+
+  Framer Motion 11.0.x
+    Why: The animation system for session activation sequence, profile card
+    updates, command feed slide-ins, and crown jewel materialisation sequence.
+    Install: npm install framer-motion@11.0.14
+
+  TailwindCSS 3.4.x
+    Why: Utility-first CSS for rapid layout implementation. Custom design
+    tokens defined as CSS custom properties, applied via Tailwind's arbitrary
+    value syntax or CSS variables.
+    Install: npm install -D tailwindcss@3.4.1 postcss autoprefixer
+
+  Zustand 4.5.x
+    Why: Minimal global state management. No boilerplate. Supports selective
+    subscriptions (each component only re-renders on its own slice).
+    Much lighter than Redux for this single-page use case.
+    Install: npm install zustand@4.5.2
+
+  Lucide React 0.344.x
+    Why: Consistent, sharp icon set. Terminal, shield, alert, activity icons
+    used throughout the dashboard.
+    Install: npm install lucide-react@0.344.0
+
+2.9 CONTAINERISATION
+
+  Docker Engine 25.x + Docker Compose 2.24.x
+    Why: Redis and optionally the ShadowMesh network namespace run in Docker
+    to ensure consistent behaviour regardless of host package versions.
+    Install: Follow https://docs.docker.com/engine/install/ubuntu/
+
+
+================================================================================
+SECTION 3 — PROJECT REPOSITORY STRUCTURE
+================================================================================
+
+phantasm/
+│
+├── backend/
+│   ├── sm_core.py                  # ShadowMesh: NFQueue + topology + dispatch
+│   ├── sm_services/
+│   │   ├── __init__.py
+│   │   ├── ssh_emulator.py         # OpenSSH banner + key exchange
+│   │   ├── smb_emulator.py         # SMB2 session + directory responses
+│   │   ├── rdp_emulator.py         # RDP connection negotiation
+│   │   ├── ldap_emulator.py        # LDAP bind + search responses
+│   │   ├── http_emulator.py        # HTTP/HTTPS response + TLS termination
+│   │   ├── db_emulator.py          # MySQL/MSSQL/Oracle protocol banners + query resp
+│   │   ├── ad_emulator.py          # Kerberos TGT/TGS + AD-specific LDAP
+│   │   ├── ftp_emulator.py         # FTP 220 banner + PASV/LIST simulation
+│   │   └── base_emulator.py        # Abstract base class for all emulators
+│   │
+│   ├── sm_traffic_gan.py           # GAN-based background traffic generator
+│   ├── sm_topology.py              # Topology generator: host generation + mutation
+│   ├── sm_synthetic.py             # Shared identity registry + consistency enforcer
+│   │
+│   ├── mt_engine.py                # MirrorTrap: command ingestion + profiling
+│   ├── mt_classifier.py            # ONNX BERT ATT&CK classifier wrapper
+│   ├── mt_expertise.py             # Expertise scoring heuristics
+│   ├── mt_attribution.py           # ATT&CK group cosine similarity scoring
+│   ├── mt_timing.py                # ICI analysis + operational state estimation
+│   │
+│   ├── fc_controller.py            # Feedback controller: trigger eval + mutation
+│   ├── fc_triggers.py              # Trigger condition definitions (4 triggers)
+│   ├── fc_engagement.py            # Engagement score calculation
+│   │
+│   ├── session_mgr.py              # Session lifecycle + flush worker
+│   │
+│   ├── de_engine.py                # Dossier engine: aggregation + LLM + PDF
+│   ├── de_prompt.py                # LLM prompt builder
+│   ├── de_renderer.py              # Jinja2 → WeasyPrint PDF renderer
+│   │
+│   ├── api_server.py               # FastAPI REST + WebSocket bridge
+│   ├── api_models.py               # Pydantic request/response models
+│   │
+│   ├── db/
+│   │   ├── __init__.py
+│   │   ├── schema.py               # All CREATE TABLE statements as Python strings
+│   │   ├── migrations.py           # Schema creation + index setup on init
+│   │   ├── queries.py              # Named async query functions (no inline SQL elsewhere)
+│   │   └── init_synthetic.py       # Bootstrap synthetic data (AD users, DB records)
+│   │
+│   ├── models/
+│   │   ├── bert_attack/            # Fine-tuned BERT ONNX model weights
+│   │   │   ├── model.onnx
+│   │   │   ├── tokenizer/          # Tokenizer vocab and config
+│   │   │   └── label_map.json      # technique_id → label index mapping
+│   │   ├── distilbert_expertise/   # DistilBERT expertise classifier
+│   │   │   ├── model.onnx
+│   │   │   └── label_map.json
+│   │   ├── dcgan_traffic/          # Pre-trained DCGAN weights
+│   │   │   └── generator.pt
+│   │   └── att&ck_vectors/
+│   │       └── group_vectors.npy   # 138 group TTP vectors, shape (138, N_TECHNIQUES)
+│   │
+│   ├── templates/
+│   │   └── dossier.html.j2         # Jinja2 dossier HTML template
+│   │
+│   ├── data/
+│   │   ├── bfsi_hostnames.json     # Real-pattern Indian BFSI hostname pool
+│   │   ├── att&ck_v14.json         # Local copy of ATT&CK enterprise matrix
+│   │   ├── apt_toolkit_sigs.json   # Tool → APT group mapping for signature matching
+│   │   ├── os_fingerprints.json    # OS-specific TCP stack characteristics
+│   │   └── weak_passwords.json     # Pool of synthetic passwords for AD emulation
+│   │
+│   ├── output/                     # Generated PDFs and JSON dossiers
+│   ├── logs/                       # Per-component log files
+│   ├── requirements.txt            # pip freeze output
+│   └── environment_check.py        # Pre-demo validation script
+│
+├── frontend/
+│   ├── src/
+│   │   ├── main.jsx                # React entry point
+│   │   ├── App.jsx                 # Root component + WebSocket init
+│   │   ├── store/
+│   │   │   └── sessionStore.js     # Zustand global state
+│   │   ├── components/
+│   │   │   ├── Header/
+│   │   │   │   └── Header.jsx
+│   │   │   ├── CommandFeed/
+│   │   │   │   ├── CommandFeed.jsx
+│   │   │   │   └── CommandEntry.jsx
+│   │   │   ├── NetworkGraph/
+│   │   │   │   ├── NetworkGraph.jsx
+│   │   │   │   └── useD3Graph.js   # D3 initialisation + update hooks
+│   │   │   ├── OperatorProfile/
+│   │   │   │   ├── OperatorProfile.jsx
+│   │   │   │   ├── ExpertiseGauge.jsx
+│   │   │   │   ├── ObjectiveBars.jsx
+│   │   │   │   ├── StateIndicator.jsx
+│   │   │   │   └── AttributionRadar.jsx
+│   │   │   ├── StressChart/
+│   │   │   │   └── StressChart.jsx
+│   │   │   ├── BottomBar/
+│   │   │   │   └── BottomBar.jsx
+│   │   │   └── DossierPanel/
+│   │   │       └── DossierPanel.jsx
+│   │   ├── hooks/
+│   │   │   ├── useWebSocket.js     # Socket.io connection + event routing
+│   │   │   └── useSessionTimer.js  # Live elapsed time counter
+│   │   └── styles/
+│   │       └── tokens.css          # All CSS custom properties (design tokens)
+│   ├── public/
+│   ├── index.html
+│   ├── vite.config.js
+│   ├── tailwind.config.js
+│   └── package.json
+│
+├── docker-compose.yml
+├── setup.sh                        # One-shot environment setup script
+└── README.md
+
+
+================================================================================
+SECTION 4 — ENVIRONMENT, NETWORKING, AND OS PREREQUISITES
+================================================================================
+
+4.1 HOST OS REQUIREMENTS
+
+  Ubuntu 22.04 LTS or 24.04 LTS (64-bit)
+  RAM: 16GB minimum recommended (8GB absolute minimum)
+  CPU: 4 cores minimum (8 preferred for model inference + traffic generation)
+  Storage: 20GB free minimum (models, Redis, SQLite, output files)
+
+4.2 SYSTEM PACKAGE DEPENDENCIES
+
+  Run as root during setup:
+
+    apt update && apt install -y \
+      python3.11 python3.11-venv python3.11-dev \
+      libnetfilter-queue-dev \
+      libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b \
+      libffi-dev libcairo2 \
+      build-essential \
+      iptables \
+      net-tools \
+      iproute2 \
+      wireshark-common \
+      nodejs npm
+
+    # Docker install (official script):
+    curl -fsSL https://get.docker.com | sh
+    usermod -aG docker $USER
+
+4.3 NETWORK INTERFACE SETUP FOR SHADOWMESH
+
+  ShadowMesh intercepts packets on a designated dummy interface.
+  This prevents ShadowMesh from interfering with the real management interface.
+
+    # Create dummy interface:
+    ip link add shadowmesh0 type dummy
+    ip link set shadowmesh0 up
+    ip addr add 192.168.10.1/24 dev shadowmesh0
+
+    # Add alias addresses for all three subnets:
+    ip addr add 192.168.20.1/24 dev shadowmesh0
+    ip addr add 192.168.30.1/24 dev shadowmesh0
+
+    # NFQueue routing rule — redirect ALL incoming traffic on shadowmesh0
+    # to NFQueue queue number 1:
+    iptables -I INPUT -i shadowmesh0 -j NFQUEUE --queue-num 1
+    iptables -I FORWARD -i shadowmesh0 -j NFQUEUE --queue-num 1
+
+  The attacker terminal (on the same machine) points at 192.168.10.x addresses.
+  Traffic routes through the shadowmesh0 dummy interface and hits NFQueue.
+
+  NOTE: If running attacker and defender on SEPARATE machines, replace the
+  dummy interface with a real secondary NIC. Route attacker traffic through
+  a switch/hub to the secondary NIC. All other configuration remains identical.
+
+4.4 PORT ALLOCATION (ALL LOCALHOST)
+
+  :3000    React frontend (Vite dev server or production serve)
+  :8000    FastAPI API server (REST + WebSocket)
+  :8001    ShadowMesh topology REST API (internal only)
+  :6379    Redis (Docker container, mapped to localhost:6379)
+
+  No external port exposure required. All PHANTASM management interfaces bind
+  to 127.0.0.1 only. ShadowMesh's public "attacker-facing" interface is the
+  shadowmesh0 dummy interface, not any localhost port.
+
+4.5 ENVIRONMENT VARIABLES
+
+  Stored in /backend/.env (never committed to git):
+
+    ANTHROPIC_API_KEY=sk-ant-...       # Claude API key for dossier generation
+    REDIS_URL=redis://127.0.0.1:6379
+    SQLITE_DB_PATH=/data/phantasm.db
+    SHADOWMESH_INTERFACE=shadowmesh0
+    NFQUEUE_QUEUE_NUM=1
+    LOG_LEVEL=INFO
+    DEMO_MODE=true                     # When true: uses cached dossier fallback
+    SHADOWMESH_HOST_COUNT=15           # Number of fake hosts to generate at init
+    PHANTASM_DOMAIN=bankname-internal.local
+    MODEL_DIR=/backend/models
+    OUTPUT_DIR=/backend/output
+
+
+================================================================================
+SECTION 5 — COMPONENT 1: SHADOWMESH CORE (sm_core.py)
+================================================================================
+
+5.1 PURPOSE
+
+ShadowMesh is the fake enterprise network. It is the first thing an attacker
+interacts with. Everything it does must be believable. If ShadowMesh fails
+to fool the attacker, the entire system is useless.
+
+sm_core.py is the orchestrator. It manages:
+  - The topology state (which fake hosts exist, what they serve)
+  - The NFQueue hook (intercept and route incoming packets)
+  - The per-service response dispatcher
+  - The background traffic emission scheduler
+  - The mutation directive consumer (Redis "sm:mutations" channel)
+  - The topology REST API (localhost:8001)
+
+5.2 TOPOLOGY GENERATOR (sm_topology.py)
+
+Called at startup. Generates the fake network procedurally.
+
+  HOST GENERATION LOGIC:
+    1. Load bfsi_hostnames.json — pool of realistic Indian bank hostname patterns.
+    2. Assign hostnames deterministically to role slots:
+         domain_controller:   dc-auth-prod.{domain}
+         database_server:     findb-primary-01.{domain}
+         web_server:          webportal-01.{domain}
+         file_server:         filesvr-corp-01.{domain}
+         payment_gateway:     pgw-mfss-01.{domain}
+         hr_system:           hrms-db-prod.{domain}
+         workstation (×8):    ws-{dept}-{seq}.{domain}
+         proxy:               internet-gw-01.{domain}
+         management:          mgmt-console.{domain}
+    3. Assign IP addresses in 192.168.{10/20/30}.x ranges:
+         10.x = user VLAN (workstations)
+         20.x = server VLAN (databases, web, file, HR, payment)
+         30.x = management VLAN (DC, management console, gateway)
+    4. Assign OS fingerprints from os_fingerprints.json:
+         Windows Server 2019: TTL=128, TCP window=65535, MSS=1460
+         Windows 10 Pro:      TTL=128, TCP window=64240, MSS=1460
+         Ubuntu 22.04:        TTL=64,  TCP window=29200, MSS=1460
+         Cisco IOS 15.x:      TTL=255, TCP window=4128,  MSS=1460
+    5. Assign services to each host based on role (see Section 6).
+    6. Assign response latency baselines:
+         Servers:     gaussian(μ=2.0ms, σ=0.6ms)
+         Workstations: gaussian(μ=5.0ms, σ=1.5ms)
+         Network gear: gaussian(μ=0.5ms, σ=0.15ms)
+    7. Serialise to topology JSON and store:
+         a. Redis key: "topology:current" (JSON string)
+         b. SQLite: topology_snapshots table, type='base'
+         c. fake_hosts table: one row per generated host
+
+  GRAPH EDGE GENERATION:
+    Edges represent network relationships visualised in D3.
+    Generated alongside hosts:
+      workstations → domain_controller (ldap_auth)
+      workstations → web_server (http)
+      database_server → domain_controller (ldap_auth)
+      payment_gateway → database_server (db_link)
+      file_server → domain_controller (ldap_auth)
+    Stored in topology JSON under "edges" array.
+
+5.3 NFQUEUE PACKET INTERCEPTION
+
+  How it works:
+    iptables routes all traffic on shadowmesh0 to NFQUEUE queue 1.
+    nfqueue-bindings Python library binds to queue 1 in userspace.
+    sm_core.py receives each packet as a callback.
+
+  Packet processing loop (sm_core.py):
+
+    from netfilterqueue import NetfilterQueue
+    from scapy.all import IP, TCP, UDP
+
+    def packet_callback(pkt):
+        scapy_pkt = IP(pkt.get_payload())
+        dst_ip = scapy_pkt[IP].dst
+        dst_port = scapy_pkt[TCP].dport if TCP in scapy_pkt else None
+        protocol = 'TCP' if TCP in scapy_pkt else 'UDP'
+
+        # Look up the host in topology
+        host = topology_state.get_host(dst_ip)
+        if host is None:
+            pkt.drop()   # IP not in our fake network — drop silently
+            return
+
+        # Look up the service emulator for this port
+        emulator = emulator_registry.get(dst_port)
+        if emulator is None:
+            pkt.drop()   # Port not emulated — silently drop
+            return
+
+        # Generate response (runs sync; emulator must be fast)
+        response_pkt = emulator.handle(scapy_pkt, host)
+
+        # Apply latency jitter BEFORE returning response
+        latency = host.sample_latency()   # gaussian sample
+        time.sleep(latency / 1000.0)
+
+        # Accept original packet (consumed) and send response
+        pkt.accept()
+        send(response_pkt, verbose=False)
+
+        # Publish event to Redis (async in background task)
+        asyncio.run_coroutine_threadsafe(
+            redis_pub.publish("sm:events", build_event(scapy_pkt, host)),
+            main_event_loop
+        )
+
+    nfq = NetfilterQueue()
+    nfq.bind(1, packet_callback)
+    nfq.run()    # Runs in dedicated thread alongside asyncio loop
+
+  LATENCY JITTER IMPLEMENTATION:
+    Each fake_host has a baseline_ms and jitter_pct (default 0.30).
+    Sample at each packet: scipy.stats.norm.rvs(loc=baseline, scale=baseline*jitter_pct)
+    Clamp to [0.1ms, baseline * 3.0] to prevent unrealistic values.
+    This ensures RTT standard deviation passes timing fingerprint tests.
+
+5.4 TOPOLOGY MUTATION (ON REDIS DIRECTIVE)
+
+  fc_controller publishes to Redis "sm:mutations" channel.
+  sm_core subscribes and handles:
+
+    async def handle_mutation(mutation_directive):
+        nodes_to_add = mutation_directive["nodes_to_add"]
+        for node_spec in nodes_to_add:
+            new_host = topology.materialise_host(node_spec)
+            emulator_registry.register(new_host)
+            topology_state.add_host(new_host)
+
+        # Update Redis topology cache
+        await redis.set("topology:current", topology_state.to_json())
+
+        # Persist to SQLite (topology_snapshots + fake_hosts tables)
+        await db.insert_topology_snapshot(topology_state, type='mutation')
+        await db.insert_fake_host(new_host)
+
+        # Publish topology update to dashboard
+        await redis.publish("phantasm:dashboard", json.dumps({
+            "type": "topology_mutation",
+            "new_nodes": [h.to_dict() for h in new_hosts],
+            "new_edges": topology_state.get_new_edges()
+        }))
+
+5.5 SHADOWMESH REST API (localhost:8001)
+
+  GET /topology
+    Returns full current topology JSON.
+    Used by dashboard on WebSocket reconnect to restore graph state.
+    Response: topology_json from Redis "topology:current"
+
+  GET /hosts
+    Returns list of all fake hosts with status.
+    Used by api_server to populate graph on initial load.
+
+  POST /topology/mutate (internal)
+    Accepts a mutation directive directly (bypasses Redis).
+    Used only for testing and demo manual override.
+
+  GET /health
+    Returns {"status": "ok", "host_count": N, "queue_depth": M}
+    Polled by api_server every 5 seconds for health dot status.
+
+
+================================================================================
+SECTION 6 — COMPONENT 2: SERVICE EMULATION LIBRARY (sm_services/)
+================================================================================
+
+6.1 BASE EMULATOR (base_emulator.py)
+
+  Abstract class all emulators inherit from:
+
+    class BaseEmulator:
+        PORTS: list[int]        # Ports this emulator handles
+        PROTOCOL: str           # "TCP" or "UDP"
+
+        def handle(self, pkt: Packet, host: FakeHost) -> Packet:
+            """Build and return a Scapy response packet."""
+            raise NotImplementedError
+
+        def build_response(self, src_ip, src_port, dst_ip, dst_port,
+                          payload: bytes) -> Packet:
+            """Utility: build IP/TCP response with given payload."""
+            return (IP(src=dst_ip, dst=src_ip) /
+                    TCP(sport=dst_port, dport=src_port,
+                        flags="PA", seq=..., ack=...) /
+                    Raw(load=payload))
+
+6.2 SSH EMULATOR (ssh_emulator.py)
+
+  PORTS: [22]
+  Handles: TCP SYN (respond with SYN-ACK), then SSH version banner.
+
+  Banner format (matches host declared OS):
+    Windows Server 2019 host: "SSH-2.0-OpenSSH_for_Windows_8.6\r\n"
+    Linux host:               "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6\r\n"
+
+  Key exchange initiation:
+    Returns SSH_MSG_KEXINIT packet with:
+    - kex_algorithms: curve25519-sha256, ecdh-sha2-nistp256
+    - server_host_key_algorithms: ssh-rsa, ecdsa-sha2-nistp256
+    - encryption_algorithms_client_to_server: aes256-ctr
+    After key exchange, connection hangs on authentication — never completes.
+    This is sufficient to defeat Nmap -sV and banner grabbers.
+
+  Command capture:
+    If the attacker completes SSH auth (by any credential — all accepted),
+    the emulator enters a fake shell session. All input lines are captured
+    and published to "sm:events" as command events. Output is fabricated
+    based on the command type (see ad_emulator for AD commands, db_emulator
+    for SQL commands, standard shell responses for all others).
+
+6.3 SMB EMULATOR (smb_emulator.py)
+
+  PORTS: [445, 139]
+  SMB2 negotiate response: returns ServerCapabilities matching Windows Server 2019.
+  Dialect: SMB 3.1.1 negotiation response.
+  Session setup: accepts any credential (NTLM auth response always succeeds).
+  Tree connect: returns valid SMB2 TREE_CONNECT response for any UNC path.
+
+  Share enumeration (net view \\IP):
+    Returns fake share list based on host role:
+      file_server:  CORPDATA, FINANCE, HRSHARE, BACKUPS, DEPT-ARCHIVE
+      domain_ctrl:  SYSVOL, NETLOGON
+      database_svr: SQLBACKUP, DBEXPORT
+
+  File listing (dir \\IP\share):
+    Generates realistic file listing on the fly using Faker:
+      FINANCE share: Q1_2026_AuditReport.xlsx, FY2025_BalanceSheet.pdf,
+                     SWIFT_Reconciliation_Aug2026.xlsx, BudgetForecast_H2.docx
+      HRSHARE:       Employee_Master_2026.xlsx, Payroll_July2026.pdf,
+                     Terminations_Confidential.docx
+    File timestamps are generated to be within the past 30 days.
+    File sizes are randomly plausible (100KB - 50MB).
+
+  Data access logging:
+    Every share access and file enumeration logged to host_interactions
+    and synthetic_data_objects tables.
+
+6.4 RDP EMULATOR (rdp_emulator.py)
+
+  PORTS: [3389]
+  Returns RDP connection request response (X.224 Connection Confirm PDU).
+  Presents a NLA (Network Level Authentication) prompt.
+  Credentials are accepted silently; session never fully establishes.
+  Result: Nmap -sV shows "ms-wbt-server" service. Scanner tooling sees RDP.
+
+6.5 LDAP EMULATOR (ldap_emulator.py)
+
+  PORTS: [389 (LDAP), 636 (LDAPS), 3268 (GC), 3269 (GC-SSL)]
+
+  Bind requests: Anonymous bind always succeeds. Simple bind always succeeds.
+  SASL bind: accepts and returns success.
+
+  Search operations:
+    Base DN: DC=bankname-internal,DC=local
+
+    Search filter "(objectClass=*)" on root:
+      Returns rootDSE with:
+        defaultNamingContext: DC=bankname-internal,DC=local
+        dnsHostName: dc-auth-prod.bankname-internal.local
+        domainFunctionality: 7 (Windows Server 2016+ functional level)
+
+    Search for users "(objectClass=user)":
+      Returns entries from ad_synthetic_users table.
+      Each user returned as full LDAP entry with all standard attributes:
+        sAMAccountName, displayName, userPrincipalName, distinguishedName,
+        department, title, mail, employeeID, whenCreated, lastLogon,
+        memberOf (group DNs), userAccountControl
+
+    Search for computers "(objectClass=computer)":
+      Returns entries from fake_hosts (AD-joined hosts).
+
+    Search for groups "(objectClass=group)":
+      Returns synthetic group structure:
+        Domain Admins, Domain Users, Enterprise Admins,
+        IT-Operations, Core-Banking-Ops, SWIFT-Operators,
+        VPN-Access, Helpdesk, Finance-Staff
+
+    Group Policy Object enumeration:
+      Returns 5-8 synthetic GPO entries with realistic names:
+        "Default Domain Policy", "Workstation Security Baseline",
+        "Server Hardening Policy", "Banking App Restrictions"
+
+6.6 HTTP EMULATOR (http_emulator.py)
+
+  PORTS: [80 (HTTP), 443 (HTTPS), 8080 (alt HTTP), 8443 (alt HTTPS)]
+
+  For HTTPS hosts: uses self-signed certificate generated at startup by
+  the cryptography library. Certificate CN matches the fake hostname.
+  TLS 1.2 handshake completes. Certificate is self-signed but structurally
+  valid — Nmap sees a completed TLS handshake.
+
+  HTTP responses by host role:
+    web_server:       Returns a plausible bank login page HTML (fake HDFC/SBI)
+    payment_gateway:  Returns "403 Forbidden" with nginx server header
+    hr_system:        Returns a SAP-like HR portal login page
+    management:       Returns a Cisco ASDM login page
+
+  Server headers (matched to declared OS):
+    Windows IIS:  Server: Microsoft-IIS/10.0
+    Linux nginx:  Server: nginx/1.18.0 (Ubuntu)
+    Linux Apache: Server: Apache/2.4.52 (Ubuntu)
+
+6.7 DB EMULATOR (db_emulator.py)
+
+  PORTS: [1433 (MSSQL), 3306 (MySQL), 1521 (Oracle), 5432 (PostgreSQL)]
+
+  Connection response: Returns appropriate welcome banner:
+    MSSQL:  TDS protocol banner with SQL Server 2019 (RTM) version string
+    MySQL:  "5.7.43-MySQL Community Server" greeting packet
+    Oracle: Oracle Database 19c Enterprise Edition greeting
+
+  SQL Query handling:
+    Queries are parsed using a simple regex parser against known table names.
+    Known tables (per FINACLE-PROD-DB): customer_accounts, transaction_log,
+      user_credentials, audit_trail, branch_details
+    Known tables (per HR-DB): employees, payroll, leave_records, departments
+
+    Query matching:
+      SELECT * FROM customer_accounts [WHERE ...]
+        → Returns rows from db_synthetic_records (SQLite) for this host
+        → If insufficient rows: generates new ones via init_synthetic.py
+      SELECT * FROM user_credentials
+        → Returns from ad_synthetic_users (reformatted as credential table)
+      Unknown query:
+        → Returns generic "1 row(s) affected" or empty result set
+
+    All SQL access logged to host_interactions (data_access_attempted=TRUE).
+    Exfil attempts (INSERT INTO outfile, xp_cmdshell) logged as IOCs.
+
+6.8 AD EMULATOR (ad_emulator.py)
+
+  Works alongside ldap_emulator for Active Directory-specific operations.
+
+  Kerberos TGT/TGS (PORTS: [88]):
+    AS-REQ received:
+      1. Extract client principal name from request
+      2. Look up in ad_synthetic_users; if not found, generate on-the-fly
+      3. Return AS-REP with:
+         - TGT encrypted with fake krbtgt key (random 32 bytes)
+         - Session key (random 32 bytes)
+         - Ticket validity: 10 hours
+    TGS-REQ received:
+      1. Return TGS-REP with service ticket
+      2. Credentials marked was_dumped=TRUE if mimikatz pattern detected
+
+  Mimikatz credential dump handling:
+    When command matches "sekurlsa::logonpasswords" or "lsadump::sam":
+      1. Select 5-10 entries from ad_synthetic_users where was_dumped=FALSE
+      2. Mark them was_dumped=TRUE
+      3. Return fake Mimikatz output in the exact mimikatz output format:
+           Authentication Id : 0 ; 278732 (00000000:00043f0c)
+           Session           : Interactive from 1
+           User Name         : r.sharma
+           Domain            : BANKNAME-INT
+           Logon Server      : DC-AUTH-PROD
+           Password          : P@ssw0rd123
+           NTLM              : [synthetic hash — see Section 27]
+      4. Set was_dumped=TRUE, dumped_in_session=current session FK
+
+  Pass-the-Hash attempts:
+    When connection attempted with an NTLM hash:
+      1. Accept the hash
+      2. Return "authentication successful"
+      3. Log credential_used in host_interactions
+      4. Mark hash as was_dumped=TRUE in ad_synthetic_users
+
+
+================================================================================
+SECTION 7 — COMPONENT 3: GAN TRAFFIC GENERATOR (sm_traffic_gan.py)
+================================================================================
+
+7.1 PURPOSE
+
+Real enterprise networks have ambient traffic. A silent honeypot network
+betrays itself to any attacker who runs passive traffic analysis (Wireshark,
+tcpdump). ShadowMesh must generate background traffic that matches statistical
+profiles of a 100-employee bank network.
+
+7.2 DCGAN MODEL
+
+  Pre-trained offline on CICIDS-2023 and UNSW-NB15 datasets.
+  Model generates synthetic packet feature vectors (not raw bytes).
+  These vectors are post-processed into Scapy packets and emitted.
+
+  Architecture: DCGAN generator with 100-dim latent vector input.
+  Output: 84-feature packet descriptor (mapped to actual Scapy fields).
+  Model file: /backend/models/dcgan_traffic/generator.pt
+  Load at startup: torch.load("generator.pt", map_location="cpu")
+
+  Traffic types generated:
+    - NTP sync packets (UDP/123) from all fake servers to 192.168.30.x (fake NTP)
+    - DNS queries (UDP/53) from workstations to domain controller
+    - SMB keep-alive (TCP/445) between random server pairs
+    - LDAP authentication attempts (TCP/389) from servers to DC
+    - HTTPS egress (TCP/443) from workstations to fake internet gateway
+
+7.3 EMISSION SCHEDULE
+
+  Background coroutine runs every 3 seconds:
+    1. Sample 10-30 traffic events from DCGAN
+    2. For each event: build Scapy packet from feature vector
+    3. Emit via raw socket on shadowmesh0 interface
+    4. Traffic visible on Wireshark as real ambient enterprise traffic
+
+  Volume calibration: CICIDS-2023 profile for 100-employee enterprise:
+    ~450 packets/minute background baseline.
+    Generator targets 400-500 packets/minute.
+
+7.4 FALLBACK (if PyTorch/GPU too slow)
+
+  If inference time exceeds 200ms per batch:
+    Replace DCGAN with pre-generated Scapy packet sequence stored in a
+    PCAP file. Loop the PCAP file, replaying with adjusted timestamps.
+    pcap_replay.py: reads traffic.pcap, adjusts timestamps, re-emits.
+    This is functionally equivalent for demo purposes.
+
+
+================================================================================
+SECTION 8 — COMPONENT 4: MIRRORTRAP ENGINE (mt_engine.py)
+================================================================================
+
+8.1 PURPOSE
+
+MirrorTrap reads everything the attacker does and builds a real-time
+4-dimensional psychological profile. This is the brain of PHANTASM.
+
+8.2 COMMAND INGESTION PIPELINE
+
+  mt_engine.py subscribes to Redis "sm:events" channel.
+
+    async def consume_events():
+        pubsub = redis.pubsub()
+        await pubsub.subscribe("sm:events")
+        async for message in pubsub.listen():
+            if message["type"] == "message":
+                event = json.loads(message["data"])
+                await process_command(event)
+
+  Event payload (from sm_core):
+    {
+      "type": "command",
+      "session_id": "PH-2026-...",
+      "seq": 42,
+      "timestamp": "2026-08-22T14:31:01.442Z",
+      "raw_command": "nmap -sV -O 192.168.10.0/24",
+      "source_ip": "192.168.1.5",
+      "target_ip": "192.168.10.0",
+      "target_port": null,
+      "ici_ms": 4200
+    }
+
+8.3 ATT&CK CLASSIFICATION (mt_classifier.py)
+
+  Model: Fine-tuned BERT-base-uncased converted to ONNX (INT8 quantised).
+  Task: Multi-label classification (one command → 1-3 technique IDs).
+  Labels: 196 MITRE ATT&CK v14 technique IDs.
+
+  Inference pipeline:
+    1. Normalise command: lowercase, strip extra whitespace, max 512 tokens.
+    2. Tokenise with BERT tokenizer (loaded from /models/bert_attack/tokenizer/).
+    3. Run ONNX inference:
+         session = ort.InferenceSession("bert_attack/model.onnx")
+         outputs = session.run(None, {
+             "input_ids": input_ids,
+             "attention_mask": attention_mask
+         })
+    4. Apply sigmoid activation to logits.
+    5. Threshold at 0.5 for primary technique, 0.3 for secondary.
+    6. Map indices to technique IDs using label_map.json.
+    7. Return: [{"technique_id": "T1046", "confidence": 0.91, "is_primary": True}]
+
+  Target latency: <400ms on 4-core CPU (tested with INT8 quantisation).
+
+  Keyword fallback (if model confidence < 0.4 for all labels):
+    Rule-based keyword matcher using att&ck_v14.json keyword fields.
+    Maps known tool names and keywords to technique IDs with confidence=0.65.
+    Ensures 100% coverage (never "Unknown" for well-known commands).
+
+8.4 EXPERTISE SCORING (mt_expertise.py)
+
+  Maintained as a rolling score, updated every 5 commands.
+  Expertise can only increase (never downgrade) within a session.
+
+  Scoring signals and weights:
+    Command complexity (30%):
+      - Pipe count per command: +5 pts per pipe
+      - Flag count: +3 pts per flag
+      - Subshell usage ($(), backticks): +10 pts
+      - Redirection operators (>, |, >>): +3 pts each
+      - Base64/encoded arguments: +15 pts
+
+    Tool sophistication (30%):
+      - Native OS tools only (net, ipconfig, dir): 0 pts
+      - Single-purpose well-known tools (Nmap, Mimikatz): +20 pts
+      - Framework tools (Cobalt Strike, PowerSploit, Empire): +30 pts
+      - Custom/novel tooling (unknown binary names): +25 pts
+
+    Sequencing logic (20%):
+      - Commands follow logical recon→access→lateral→collect pattern: +20 pts
+      - Commands appear random or templated: 0 pts
+      - Error-correction: modified retry after failure: +15 pts, exact repeat: 0 pts
+
+    Privilege escalation speed (20%):
+      - First priv-esc attempt within 5 commands of access: +25 pts
+      - 5-15 commands: +15 pts
+      - >15 commands: +5 pts
+
+  Score thresholds → expertise levels:
+    0-25:   Script Kiddie
+    25-50:  Intermediate
+    50-75:  Advanced
+    75+:    APT-Grade
+
+8.5 OBJECTIVE INFERENCE (mt_engine.py)
+
+  Uses a weighted signal approach. Each observable behaviour adds weight
+  to one or more objective scores.
+
+  Signal-to-objective mapping (partial):
+    vssadmin delete shadows       → ransomware: +30, disruption: +10
+    schtasks /create              → ransomware: +5, espionage: +10, persistence: +15
+    net use \\...\C$              → lateral_spread: +15, data_exfiltration: +10
+    mimikatz sekurlsa             → credential_harvest: +25, espionage: +10
+    SELECT * FROM customer_        → data_exfiltration: +25, financial_fraud: +15
+    Get-ADUser -Filter            → espionage: +20, data_exfiltration: +10
+    curl http://...               → data_exfiltration: +20 (if exfil URL), c2: +15
+    dir /s /b *.bak               → ransomware: +20
+    SWIFT, FINACLE in target      → financial_fraud: +20, espionage: +15
+    hr-db, payroll in target      → insider_threat: +25
+
+  Scores normalised to [0,1] by dividing by maximum possible. Highest
+  normalised score is primary_objective with objective_confidence = score.
+
+8.6 OPERATIONAL STATE ESTIMATION (mt_timing.py)
+
+  ICI (Inter-Command Interval) computed from timestamps.
+  Maintained as a sliding window of last 20 ICI values.
+
+    ici_window = deque(maxlen=20)
+    mean_ici = statistics.mean(ici_window)
+    stddev_ici = statistics.stdev(ici_window) if len > 1 else 0
+    trend = linear_regression_slope(ici_window)   # numpy.polyfit degree 1
+
+  State classification logic:
+    if min(ici_window[-5:]) < 200:             → "automated"
+    elif mean_ici < 3000 and trend < -100:     → "stressed"
+    elif stddev_ici > mean_ici * 0.8:          → "disoriented"
+    elif any(ici > 45000 for ici in window):   → "consulting_external"
+    elif mean_ici > 5000 and trend < 50:       → "methodical"
+    else:                                       → "exploratory"
+
+  Stress events (is_stress_trigger flag on commands table):
+    Triggered when: ICI drops below 3000ms after being above 8000ms.
+    Annotation: "Stress onset — cadence acceleration {delta}%"
+    Written to stress_timeline table.
+
+8.7 ATTRIBUTION SCORING (mt_attribution.py)
+
+  Build technique occurrence vector for current session:
+    session_vector[i] = count of commands mapped to technique i
+    Normalise: session_vector = session_vector / sum(session_vector)
+
+  Load pre-computed ATT&CK group vectors:
+    group_vectors = np.load("att&ck_vectors/group_vectors.npy")
+    # shape: (138, N_TECHNIQUES), one row per named threat group
+
+  Cosine similarity:
+    from sklearn.metrics.pairwise import cosine_similarity
+    scores = cosine_similarity(session_vector.reshape(1,-1), group_vectors)
+    # Returns (1, 138) array of similarity scores
+
+  Top 5 groups returned with scores. Groups with score > 0.60 flagged as
+  high-priority in dashboard attribution_json.
+
+  Tool signature matching (apt_toolkit_sigs.json):
+    If "mimikatz" in command:       → Mimikatz tool, associated: APT-41, Lazarus
+    If "cobalt strike" artifacts:   → CobaltStrike, associated: APT-19, APT-41
+    If "certutil -decode":          → Certutil LOLBin, associated: APT-36, APT-29
+
+8.8 PROFILE PUBLISH
+
+  After every 5 commands processed:
+    profile_payload = {
+        "session_id": "...",
+        "command_count": N,
+        "expertise_level": "apt_grade",
+        "expertise_confidence": 0.87,
+        "primary_objective": "espionage",
+        "objective_confidence": 0.71,
+        "objective_scores": [...],
+        "operational_state": "stressed",
+        "state_onset_s": 1874,
+        "attribution": [{"group": "APT-36", "score": 0.61}],
+        "tool_signatures": [...],
+        "avg_ici_ms": 2100,
+        "min_ici_ms": 800,
+        "stress_events": 3,
+        "engagement_score": 2.3
+    }
+    await redis.publish("mt:profile", json.dumps(profile_payload))
+    await db.insert_operator_profile(profile_payload)   # operator_profiles table
+
+
+================================================================================
+SECTION 9 — COMPONENT 5: FEEDBACK CONTROLLER (fc_controller.py)
+================================================================================
+
+9.1 PURPOSE
+
+fc_controller.py reads every profile update from MirrorTrap and decides
+whether to mutate ShadowMesh topology. It is the adaptive intelligence layer.
+
+9.2 TRIGGER EVALUATION (fc_triggers.py)
+
+  Evaluates all 4 triggers on each profile update. Rate-limited to one
+  mutation per 120 seconds via Redis TTL key.
+
+  TRIGGER 1 — APT/Advanced Detected (Crown Jewel Materialisation):
+    Condition:
+      (expertise_level in ["advanced", "apt_grade"])
+      AND (primary_objective in ["espionage", "data_exfiltration"])
+      AND (expertise_confidence > 0.80)
+      AND (session_elapsed_s > 30)   # Avoid hair-trigger on first commands
+
+    Mutation nodes to materialise:
+      FINACLE-PROD-DB:
+        hostname: finacle-prod-db.bankname-internal.local
+        ip: 192.168.30.11
+        role: core_banking
+        os: Windows Server 2019
+        services: [{port: 1433, service: mssql, banner: "SQL Server 2019"},
+                   {port: 1521, service: oracle, banner: "Oracle 19c"}]
+        is_crown_jewel: true
+
+      SWIFT-INTERFACE-GW:
+        hostname: swift-interface-gw.bankname-internal.local
+        ip: 192.168.30.12
+        role: payment_gateway (SWIFT class)
+        os: Red Hat Enterprise Linux 8
+        services: [{port: 8443, service: https, banner: "MQ/8.0.0.0"}]
+        is_crown_jewel: true
+
+      UID-API-INTERNAL:
+        hostname: uid-api-internal.bankname-internal.local
+        ip: 192.168.30.15
+        role: uid_api
+        os: Ubuntu 22.04
+        services: [{port: 443, service: https}]
+        is_crown_jewel: true
+
+  TRIGGER 2 — Ransomware Detected (Backup Infrastructure):
+    Condition:
+      (primary_objective == "ransomware")
+      AND any command matching: vssadmin|shadow|backup|encrypt|*.bak
+
+    Mutation nodes:
+      BACKUP-SRV-01: ip 192.168.20.41, SMB + Veeam port 9392
+      NAS-STORAGE-01: ip 192.168.20.42, NFS + SMB, fake *.bak file listings
+
+  TRIGGER 3 — Insider Threat Detected:
+    Condition:
+      (primary_objective == "insider_threat")
+      AND (no port scanning commands detected in last 20 commands)
+      AND credential-only lateral movement pattern
+
+    Mutation nodes:
+      HR-DB-PROD: ip 192.168.20.50, MSSQL, fake payroll schema
+      LEGAL-FILESHARE: ip 192.168.20.51, SMB, fake legal documents
+      EXEC-SHAREPOINT: ip 192.168.20.52, HTTPS, fake board minutes
+
+  TRIGGER 4 — Stress Event (Latency Manipulation):
+    Condition: operational_state transitions to "stressed" from any other state
+
+    Action (no new nodes):
+      1. Issue directive to ShadowMesh to increase all response latencies by
+         20-40ms for next 60 seconds (increases uncertainty, extends dwell).
+      2. Add a "partial access restriction" prompt to the next SMB probe.
+    This trigger can fire at any rate (not subject to 120-second limit).
+
+9.3 MUTATION RATE LIMITING
+
+  Before issuing any topology mutation directive:
+
+    rate_key = f"mutation:rate_limit:{session_id}"
+    existing = await redis.get(rate_key)
+    if existing is not None:
+        # Within rate limit window — queue the mutation
+        pending_mutations.append(mutation)
+        return
+    # Issue mutation
+    await redis.publish("sm:mutations", json.dumps(mutation_directive))
+    await redis.set(rate_key, "1", ex=120)   # 120-second TTL
+
+  Queued mutations fire in order when the TTL expires.
+
+9.4 ENGAGEMENT SCORE
+
+  Maintained by fc_engagement.py, updated on every profile publish.
+
+    baseline_dwell = {
+        "script_kiddie": 480,   # 8 min
+        "intermediate": 900,    # 15 min
+        "advanced": 240,        # 4 min
+        "apt_grade": 120        # 2 min
+    }[expertise_level]
+
+    engagement_score = session_elapsed_s / baseline_dwell
+
+  Engagement score > 1.0 = PHANTASM is outperforming a static honeypot.
+  Displayed prominently in dashboard header. Written to sessions table.
+
+
+================================================================================
+SECTION 10 — COMPONENT 6: SESSION MANAGER (session_mgr.py)
+================================================================================
+
+10.1 PURPOSE
+
+Manages session lifecycle, flushes buffered events to SQLite, and triggers
+the dossier engine when a session ends.
+
+10.2 SESSION LIFECYCLE
+
+  States: idle → active → ended (or aborted)
+  Stored in: sessions table + Redis hash session:{id}:state
+
+  SESSION START:
+    1. Generate session_id: PH-2026-{YYYYMMDDHHmmss}-{6char random uppercase}
+    2. Insert row in sessions table (state='active')
+    3. SET Redis session:{id}:state {state, start_time, command_count=0}
+    4. Publish "session_started" event to "phantasm:dashboard"
+    5. Start flush_worker coroutine (every 5 seconds)
+    6. Start temporal_aging coroutine (every 60 seconds)
+
+  FLUSH WORKER (every 5 seconds):
+    Reads buffered commands from in-memory list (appended by mt_engine).
+    Batch-inserts into commands table (one INSERT with VALUES (...),(...),...).
+    Batch-inserts technique links into command_techniques table.
+    Batch-inserts host interactions into host_interactions table.
+    Clears buffer after successful insert.
+    Rationale: Batching prevents SQLite lock contention under rapid command flow.
+
+  TEMPORAL AGING WORKER (every 60 seconds):
+    Updates last_logon timestamps on 5-12% of ad_synthetic_users (random sample).
+    Inserts 3-7 new db_synthetic_records in customer_accounts (simulating transactions).
+    Appends fake entries to any served process_listing objects.
+    Rotates Windows Event Log entries in served synthetic_data_objects.
+    This prevents sophisticated attackers from noticing a frozen synthetic world.
+
+  SESSION END:
+    Trigger: [END SESSION] button in dashboard OR attacker disconnect detection.
+    1. Set sessions.session_state = 'ended', sessions.ended_at = NOW()
+    2. Compute sessions.duration_seconds
+    3. Compute sessions.dwell_multiplier = duration / dwell_baseline
+    4. SYNC flush: write ALL remaining buffered events to SQLite (no 5-second wait)
+    5. Commit SQLite transaction
+    6. Call de_engine.generate_dossier(session_id)
+    7. Publish "session_ended" to "phantasm:dashboard"
+
+  DISCONNECT DETECTION:
+    NFQueue callback sets a "last_packet" Redis key with 30-second TTL.
+    A background task checks every 10 seconds: if key expired → attacker gone.
+    Triggers automatic session end via the same flow above.
+
+10.3 SESSION HISTORY API
+
+  GET /api/sessions → list of past sessions (last 20)
+  GET /api/sessions/{session_id} → full session record with all commands
+  Implemented in api_server.py, reads from SQLite sessions table.
+
+
+================================================================================
+SECTION 11 — COMPONENT 7: DOSSIER ENGINE (de_engine.py)
+================================================================================
+
+11.1 PURPOSE
+
+Assembles the complete session record, generates an LLM-written narrative,
+renders a professional PDF, and stores the output for download.
+
+11.2 SESSION AGGREGATION QUERIES
+
+  Executed sequentially from queries.py after session flush completes.
+  See SECTION 15 for full SQL. Queries cover:
+  - Session overview (commands, techniques, dwell, engagement score)
+  - Full technique list with first-observed times and occurrence counts
+  - Final operator profile snapshot (last row in operator_profiles)
+  - Stress event timeline (from stress_timeline table)
+  - IOCs (all real attacker-observed indicators)
+  - Host interactions (all accessed fake hosts with depth and exfil status)
+  - Topology mutations during session
+
+  All results assembled into a single structured_data dict.
+
+11.3 LLM PROMPT CONSTRUCTION (de_prompt.py)
+
+  System prompt (hardcoded, see PRD Section 7.2 for exact text):
+    Instructs Claude to act as a senior CERT-In threat analyst with 15 years
+    experience. Formal Indian English. No vague language. Evidence-based.
+
+  User prompt template:
+    "Analyse the following session data from a PHANTASM cognitive honeypot
+    engagement and produce a 400-word threat intelligence narrative...
+    [structured JSON embedded inline]
+    Your narrative must:
+    1. Open with the single most important finding
+    2. Describe attack methodology chronologically using technique timeline
+    3. Explain stress event at {stress_onset_time}
+    4. State attribution with explicit confidence levels
+    5. End with one specific BFSI-defender recommendation
+    Output only narrative text. No headers."
+
+  JSON formatted as compact single-line string (token efficiency).
+  Max tokens requested: 600 (enough for 400-word narrative + margin).
+
+11.4 LLM API CALL (Claude API)
+
+  Client: aiohttp.ClientSession (async HTTP)
+  Endpoint: https://api.anthropic.com/v1/messages
+  Model: claude-sonnet-4-6
+  API Key: from ANTHROPIC_API_KEY environment variable
+
+  Request structure:
+    {
+      "model": "claude-sonnet-4-6",
+      "max_tokens": 600,
+      "messages": [
+        {"role": "user", "content": user_prompt}
+      ],
+      "system": system_prompt
+    }
+
+  Headers:
+    "x-api-key": ANTHROPIC_API_KEY
+    "anthropic-version": "2023-06-01"
+    "content-type": "application/json"
+
+  Timeout: 30 seconds (aiohttp timeout config)
+  Retry: 1 retry on timeout or 5xx error (exponential backoff: 2s)
+
+  Response parsing:
+    narrative = response["content"][0]["text"]
+    Validate: len(narrative) > 100 (if shorter, retry or use fallback)
+
+  CACHED FALLBACK (demo safety net):
+    If API call fails or DEMO_MODE=true:
+      Load pre-generated dossier from /backend/output/cached_dossier.json
+      Return cached narrative
+      PDF still generated from cached narrative
+      Judge cannot tell the difference during demo
+    Cached dossier should be generated during pre-demo setup using a
+    representative session record.
+
+11.5 PDF RENDERING (de_renderer.py)
+
+  Template: /backend/templates/dossier.html.j2
+  Engine: Jinja2
+
+  Template sections:
+    HEADER: PHANTASM wordmark, CONFIDENTIAL stamp, Session ID, amber rule
+    SECTION 1 — Session Overview: table with key statistics
+    SECTION 2 — Operator Profile: expertise, objective, state, attribution table
+    SECTION 3 — Attack Timeline: chronological technique table
+    SECTION 4 — IOC Box: red left-border box with C2 IPs, payload hashes
+    SECTION 5 — Assets Targeted: table of fake hosts accessed
+    SECTION 6 — Analyst Assessment: LLM narrative in italic amber-tinted box
+    SECTION 7 — CERT-In MIS Fields: pre-filled incident report fields
+    FOOTER (every page): PHANTASM branding, page numbers, CONFIDENTIAL
+
+  Rendering:
+    html_content = jinja_env.get_template("dossier.html.j2").render(**dossier_data)
+    pdf_path = f"/backend/output/{session_id}_dossier.pdf"
+    HTML(string=html_content).write_pdf(pdf_path)
+
+  Also writes JSON:
+    json_path = f"/backend/output/{session_id}_dossier.json"
+    with open(json_path, "w") as f:
+        json.dump(dossier_record, f, indent=2)
+
+  Updates sessions table: dossier_generated=TRUE, dossier_path, dossier_json_path.
+  Publishes "dossier_ready" event to Redis "phantasm:dashboard".
+
+11.6 DOSSIER OUTPUT FIELDS (Full JSON Schema)
+
+  {
+    "session_id": "PH-2026-20260822143012-APT4X1",
+    "generated_at": "2026-08-22T14:35:00Z",
+    "session_overview": {
+      "start_time": "...", "end_time": "...",
+      "duration_seconds": 4140,
+      "total_commands": 284,
+      "unique_techniques_count": 11,
+      "engagement_score": 2.3,
+      "dwell_time_vs_static_baseline_pct": 230.0
+    },
+    "operator_profile": {
+      "expertise_level": "apt_grade",
+      "expertise_confidence": 0.87,
+      "primary_objective": "espionage",
+      "objective_confidence": 0.71,
+      "operational_states": [{"state":"methodical","onset_s":0,"duration_s":1874},
+                              {"state":"stressed","onset_s":1874,"duration_s":2266}],
+      "stress_events": [{"type":"cadence_acceleration","timestamp_s":1874,"ici_delta_pct":340}],
+      "operator_type": "Human",
+      "estimated_timezone": "UTC+5"
+    },
+    "attribution": {
+      "ranked_groups": [
+        {"group_id":"G0012","group_name":"APT-36","overlap_score":0.61,"confidence":0.58},
+        {"group_id":"G0096","group_name":"APT-41","overlap_score":0.43,"confidence":0.41}
+      ],
+      "tool_signatures": [{"tool_name":"mimikatz","version":"unknown",
+                           "evidence":"sekurlsa::logonpasswords"}],
+      "syntax_idioms": ["double-quoted powershell args","base64 -enc pattern"]
+    },
+    "techniques": [...],
+    "iocs": {"c2_ips":["45.xxx.xxx.12"],"c2_ports":[443],"payload_hashes":[...]},
+    "assets_accessed": [...],
+    "narrative": "[LLM-generated text]",
+    "recommended_actions": [...],
+    "cert_in_mis_fields": {
+      "incident_type": "APT Intrusion — Financial Sector",
+      "affected_systems": "PHANTASM Deception Infrastructure (synthetic)",
+      "attack_vector": "Network — SSH/SMB lateral movement",
+      "reporting_organisation": "PHANTASM Cognitive Honeypot System",
+      "poc_name": "SOC Analyst, Deploying Organisation",
+      "poc_email": "soc@organisation.example"
+    }
+  }
+
+
+================================================================================
+SECTION 12 — COMPONENT 8: API SERVER (api_server.py)
+================================================================================
+
+12.1 PURPOSE
+
+api_server.py is the integration hub. It serves the REST API consumed by the
+React frontend and bridges Redis pub/sub to WebSocket clients. It is the only
+component that the frontend communicates with directly.
+
+12.2 FRAMEWORK SETUP
+
+  FastAPI + Uvicorn + python-socketio (Socket.io over WebSocket)
+
+  from fastapi import FastAPI
+  import socketio
+
+  sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins="*")
+  app = FastAPI()
+  combined_app = socketio.ASGIApp(sio, app)
+
+  Run: uvicorn api_server:combined_app --host 127.0.0.1 --port 8000
+
+12.3 REST ENDPOINTS
+
+  All endpoints return JSON. CORS: allow origin http://localhost:3000.
+
+  GET /api/health
+    Response: {shadowmesh: "ok"|"degraded"|"down",
+               mirrortrap: "ok"|"degraded"|"down",
+               redis: "ok"|"down",
+               sqlite: "ok"|"error"}
+    Reads from Redis "phantasm:system:health" hash.
+
+  GET /api/topology
+    Response: Full topology JSON (proxied from ShadowMesh REST API :8001/topology)
+    Used by frontend on initial load and WebSocket reconnect.
+
+  GET /api/sessions
+    Response: [{session_id, created_at, duration_s, expertise_level,
+                total_commands, engagement_score, dossier_generated}] (last 20)
+    Reads from sessions table via aiosqlite.
+
+  GET /api/sessions/{session_id}
+    Response: Full session record with operator_profile and technique list.
+
+  GET /api/sessions/{session_id}/commands
+    Response: [{seq, received_at, raw_command, technique_ids, ici_ms}] (paginated)
+    Pagination: ?page=1&per_page=100
+
+  GET /api/dossier/{session_id}/pdf
+    Response: File response (application/pdf) serving the generated PDF.
+    Returns 404 if dossier not yet generated, 202 if still generating.
+
+  GET /api/dossier/{session_id}/json
+    Response: Full dossier JSON record.
+
+  POST /api/session/start
+    Body: {} (no required fields)
+    Action: Calls session_mgr.start_session()
+    Response: {"session_id": "PH-2026-...", "status": "started"}
+
+  POST /api/session/end
+    Body: {"session_id": "PH-2026-..."}
+    Action: Calls session_mgr.end_session(session_id)
+    Response: {"status": "ended", "dossier_status": "generating"}
+
+  POST /api/demo/trigger/{trigger_name}
+    Demo override endpoint for manual mutation triggers during presentation.
+    trigger_name: "apt_crown_jewel" | "ransomware_backup" | "insider_hr" | "stress"
+    Action: Bypasses trigger conditions, directly fires mutation.
+    Response: {"status": "triggered", "nodes_added": N}
+
+12.4 WEBSOCKET / SOCKET.IO BRIDGE
+
+  On API server startup, a background coroutine subscribes to all relevant
+  Redis channels and forwards events to connected Socket.io clients:
+
+    @sio.event
+    async def connect(sid, environ):
+        # Send current state snapshot to newly connected client
+        topology = await redis.get("topology:current")
+        profile = await redis.hgetall(f"session:{active_session_id}:profile:current")
+        await sio.emit("state_snapshot", {"topology": topology, "profile": profile}, to=sid)
+
+    async def redis_to_socketio_bridge():
+        pubsub = redis.pubsub()
+        await pubsub.subscribe("phantasm:dashboard")
+        async for message in pubsub.listen():
+            if message["type"] == "message":
+                event_data = json.loads(message["data"])
+                await sio.emit(event_data["type"], event_data)
+
+  Events emitted to frontend (see Section 17 for full protocol):
+    command_received, profile_update, topology_mutation, session_started,
+    session_ended, dossier_ready, system_health_update
+
+12.5 HEALTH HEARTBEAT WRITER
+
+  Each component publishes its heartbeat to Redis every 5 seconds:
+    HSET phantasm:system:health shadowmesh_ts {unix_timestamp}
+    HSET phantasm:system:health mirrortrap_ts {unix_timestamp}
+
+  api_server reads these and computes status:
+    delta = now - component_ts
+    status = "ok" if delta < 15 else "degraded" if delta < 30 else "down"
+
+  Emits "system_health" event to frontend every 10 seconds.
+
+
+================================================================================
+SECTION 13 — COMPONENT 9: FRONTEND DASHBOARD (React SPA)
+================================================================================
+
+13.1 ARCHITECTURE OVERVIEW
+
+  Single-page React 18 application. No routing. 4 UI states of one screen.
+  State managed by Zustand (sessionStore.js).
+  WebSocket connection via Socket.io-client.
+  D3.js owns the SVG DOM for the network graph (React does not re-render D3 nodes).
+  Recharts handles stress chart and profile bars (fully React-controlled).
+  Framer Motion handles all CSS transition animations.
+  Runs on http://localhost:3000 (Vite dev server during hackathon).
+
+13.2 ZUSTAND STORE (store/sessionStore.js)
+
+  Store structure matches the full schema specified in PHANTASM_WEBSITE_FLOW.txt
+  (see Section 14 of that document). Key slices:
+  - systemStatus: health dots for 3 components
+  - sessionState: "idle" | "active" | "ended"
+  - commands: array of last 200 command entries
+  - profile: current 4-dimension operator profile
+  - nodes / edges: graph data (updated by D3, not fully managed by React)
+  - iciHistory: last 100 ICI data points for stress chart
+  - iocs: counts and lists
+  - dossierStatus / dossierData: dossier lifecycle
+  - stats: commands, techniques, dwell, engagementScore
+
+13.3 WEBSOCKET EVENT HANDLING (hooks/useWebSocket.js)
+
+  const socket = io("http://localhost:8000");
+
+  socket.on("connect", () => {
+      useSessionStore.getState().setWsConnected(true);
+  });
+
+  socket.on("state_snapshot", (data) => {
+      // Restore state after reconnection
+  });
+
+  socket.on("command_received", (data) => {
+      const store = useSessionStore.getState();
+      store.addCommand(data);                    // Command feed
+      store.updateIci(data.ici_ms, data.timestamp); // Stress chart
+      // D3 graph: pulse target node
+      networkGraphRef.current?.pulseNode(data.target_ip);
+  });
+
+  socket.on("profile_update", (data) => {
+      useSessionStore.getState().updateProfile(data);
+  });
+
+  socket.on("topology_mutation", (data) => {
+      useSessionStore.getState().addNodes(data.new_nodes);
+      networkGraphRef.current?.addNodes(data.new_nodes, data.new_edges);
+      // Trigger crown jewel animation sequence
+  });
+
+  socket.on("session_started", () => setSessionState("active"));
+  socket.on("session_ended", () => setSessionState("ended"));
+  socket.on("dossier_ready", (data) => setDossierReady(data));
+
+  // Auto-reconnect (Socket.io handles this by default)
+  // On reconnect: request state snapshot from server
+
+13.4 NETWORK GRAPH (NetworkGraph.jsx + useD3Graph.js)
+
+  SETUP:
+    D3 force simulation initialised once in useEffect on mount:
+      simulation = d3.forceSimulation()
+        .force("link", d3.forceLink().id(d => d.id).distance(120))
+        .force("charge", d3.forceManyBody().strength(-400))
+        .force("center", d3.forceCenter(width/2, height/2))
+        .force("collision", d3.forceCollide().radius(30))
+
+    SVG elements (groups for links, nodes, labels) created once.
+    Simulation tick updates transform attributes directly in D3's DOM.
+    React NEVER re-renders the SVG children — only D3 mutates them.
+
+  NODE VISUAL STATES:
+    default:    fill="#1E2030", r=12, no animation
+    probed:     fill="#F59E0B", r=14, amber pulse animation (CSS keyframe)
+    accessed:   fill="#EF4444", r=16, red glow (box-shadow via filter)
+    crown:      fill="#FCD34D", r=18, spring scale animation + ripple ring
+
+  ADDING NEW NODES (on topology_mutation event):
+    function addNodes(newNodes, newEdges) {
+        // Add to D3 simulation data arrays
+        simulation.nodes([...existingNodes, ...newNodes]);
+        simulation.force("link").links([...existingEdges, ...newEdges]);
+        simulation.alpha(0.3).restart();   // Gentle re-simulation, not full reset
+
+        // Crown jewel animation sequence (for is_crown_jewel nodes):
+        for each crown node:
+            1. Start at scale(0, 0) with amber opacity 0
+            2. Animate scale to (1, 1) over 600ms (spring easing)
+            3. Emit 3 ripple rings expanding outward with fade
+            4. Show brief "CROWN JEWEL MATERIALIZED" text overlay
+            5. Pulse amber glow continuously going forward
+    }
+
+  CLICK INTERACTION:
+    Clicking a node → shows side panel with fake service details:
+      hostname, IP, OS, services list, status, commands seen
+
+13.5 PROFILE CARD COMPONENTS
+
+  ExpertiseGauge.jsx:
+    SVG arc gauge (D3 arc or Recharts RadialBar).
+    Needle sweeps from 0 to current expertise_score (0-100).
+    Animated: needle transition 600ms ease-out.
+    Labels at stops: Script Kiddie | Intermediate | Advanced | APT-Grade.
+    Color: green → amber → red across range.
+
+  ObjectiveBars.jsx:
+    7 horizontal bars, one per objective type.
+    Width = objective_score × 100%. Framer Motion layout animation on width change.
+    Top bar highlighted (primary_objective) with amber border.
+
+  StateIndicator.jsx:
+    Large coloured chip with icon:
+      methodical:  green, ☑ icon, text "METHODICAL"
+      stressed:    amber, ⚡ icon, text "STRESSED" + onset time
+      disoriented: purple, ? icon
+      automated:   blue, ⚙ icon
+    Framer Motion: animatePresence for transition between states.
+
+  AttributionRadar.jsx:
+    Spider/radar chart showing top 5 APT group overlap scores.
+    Recharts RadarChart component.
+    5 axes: APT-36, APT-41, Lazarus, APT-29, APT-19 (most likely matches).
+    Score fills the web shape. Updates with Recharts animation.
+
+13.6 COMMAND FEED (CommandFeed.jsx)
+
+  Virtualised list (100 visible items max for performance).
+  New entries slide in from bottom (Framer Motion y: 8 → 0, opacity 0 → 1).
+  Auto-scroll to bottom on new entry.
+  Each entry:
+    - Timestamp (HH:MM:SS, JetBrains Mono, --text-muted)
+    - ATT&CK badge: coloured chip with technique ID and tactic name
+    - Command text: truncated at 120 chars, monospace
+
+  Badge colour logic (from --tactic-* CSS variables):
+    discovery / reconnaissance → --tactic-recon (blue)
+    credential-access          → --tactic-cred (amber)
+    lateral-movement           → --tactic-lateral (red)
+    exfiltration / c2          → --tactic-exfil (deep red)
+    execution                  → yellow
+    persistence                → --tactic-persist (green)
+
+13.7 STRESS CHART (StressChart.jsx)
+
+  Recharts LineChart with two data series:
+    - raw ICI values (ms) — thin amber line, slightly transparent
+    - moving average (20-point) — thicker amber line, solid
+
+  X-axis: session elapsed time (minutes)
+  Y-axis: ICI in ms (log scale optional if variance is high)
+  Threshold line at 3000ms (horizontal dashed red line, stress zone below)
+  Event markers: vertical amber lines at stress onset events with tooltip.
+
+  Real-time update: Recharts re-renders when iciHistory slice updates in Zustand.
+  Data slice: last 100 points only (beyond 100, oldest points drop off left).
+
+13.8 BOTTOM BAR
+
+  Left: IOC counters: "C2 IPs: N | Payloads: N | Assets: N"
+  Centre: Stress index summary: current mean ICI, trend indicator
+  Right: Engagement multiplier: "2.3× DWELL" (amber, prominent)
+
+13.9 HEADER BAR
+
+  Left:   PHANTASM wordmark + "Cognitive Honeypot" tagline
+  Centre: Status chip (IDLE/ACTIVE/ENDED) + session timer + command counter
+  Right:  Engagement score + [START SESSION] + [END SESSION] + [GENERATE DOSSIER]
+
+  Buttons:
+    [▶ START SESSION]:  green border, active when idle
+    [■ END SESSION]:    amber border, active when session active
+    [⬇ GENERATE DOSSIER]: grey when idle, amber when active/ended, triggers dossier
+
+13.10 DOSSIER PANEL (DossierPanel.jsx)
+
+  Initially hidden off-screen (transform: translateY(100%))
+  Slides up when dossierStatus = "generating" or "ready"
+  Shows progress spinner while generating, download button when ready
+  Clicking download: opens /api/dossier/{session_id}/pdf in new tab
+
+
+================================================================================
+SECTION 14 — STORAGE ARCHITECTURE: REDIS (TIER 1)
+================================================================================
+
+14.1 Redis is the real-time message bus and ephemeral state store.
+     All data here is session-scoped and does not persist across restarts.
+     RDB snapshot every 60 seconds to /data/redis.rdb (for crash recovery only).
+
+14.2 PUB/SUB CHANNELS
+
+  sm:events
+    Published by: sm_core.py (after every packet-level event)
+    Subscribed by: mt_engine.py
+    Payload: See Section 8.2
+
+  mt:profile
+    Published by: mt_engine.py (every 5 commands)
+    Subscribed by: fc_controller.py, api_server.py
+    Payload: See Section 8.8
+
+  sm:mutations
+    Published by: fc_controller.py
+    Subscribed by: sm_core.py
+    Payload: See Section 9.2
+
+  phantasm:dashboard
+    Published by: api_server.py (aggregated from all sources)
+    Subscribed by: Socket.io bridge in api_server.py → WebSocket clients
+
+14.3 KEY-VALUE STATE
+
+  topology:current
+    Value: JSON string of full topology
+    Written by: sm_core after init and after each mutation
+    Read by: api_server /api/topology, frontend on reconnect
+
+  session:{session_id}:state
+    HASH fields: state, start_time, command_count, phase, last_update
+    Written by: session_mgr
+    Read by: api_server health endpoint
+
+  session:{session_id}:profile:current
+    HASH fields: all 4 profile dimensions + timing stats + engagement
+    Written by: mt_engine on each profile publish
+    Read by: api_server on WebSocket reconnect for state restore
+    TTL: 3600 seconds
+
+  session:{session_id}:topology:current
+    STRING (JSON): current topology including mutation-added nodes
+    Written by: sm_core after each mutation
+    TTL: 3600 seconds
+
+  session:{session_id}:ici:history
+    LIST: RPUSH each new ICI value, LTRIM to last 100 entries
+    Written by: mt_engine
+    Read by: mt_timing for rolling stats (avoids SQLite query)
+    TTL: 3600 seconds
+
+  mutation:rate_limit:{session_id}
+    STRING: "1" (existence is the check, not the value)
+    Written by: fc_controller when mutation issued
+    TTL: 120 seconds (the rate limit window)
+
+  dossier:{session_id}:status
+    STRING: "pending" | "generating" | "ready" | "error"
+    Written by: de_engine at each stage
+    TTL: 3600 seconds
+
+  phantasm:system:health
+    HASH fields: shadowmesh_ts, mirrortrap_ts, feedback_ts, api_ts
+    Written by: each component's heartbeat loop (every 5 seconds)
+    Read by: api_server health endpoint
+
+  session:{session_id}:synthetic:available:{object_type}
+    LIST of synthetic_data_objects PKs not yet served
+    Written by: init_synthetic.py and mutation coroutines
+    Read by: service emulators to select what to serve next
+
+
+================================================================================
+SECTION 15 — STORAGE ARCHITECTURE: SQLITE (TIER 2)
+================================================================================
+
+15.1 DATABASE LOCATION AND CONFIGURATION
+
+  File: /data/phantasm.db
+  Connection: aiosqlite.connect("/data/phantasm.db")
+  Pragmas set on every connection:
+    PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = NORMAL;
+    PRAGMA cache_size = -64000;    -- 64MB page cache
+    PRAGMA foreign_keys = ON;
+    PRAGMA temp_store = MEMORY;
+
+  WAL mode is critical: allows concurrent async read/write without blocking.
+  Without WAL, the flush_worker's writes would block api_server's reads.
+
+15.2 ALL 14 TABLES (COMPLETE SCHEMA)
+
+  TABLE 1: sessions
+    PRIMARY KEY: session_pk (INTEGER AUTOINCREMENT)
+    Fields: session_id (UNIQUE TEXT), created_at, ended_at, duration_seconds,
+            session_state, attacker_source_ip, attacker_source_port, entry_protocol,
+            total_commands, unique_techniques, engagement_score, dwell_baseline_s,
+            dwell_multiplier, topology_version_id (FK), dossier_generated, dossier_path,
+            dossier_json_path, operator_human, notes
+    Indices: session_id, created_at
+
+  TABLE 2: commands
+    PRIMARY KEY: command_pk (INTEGER AUTOINCREMENT)
+    Fields: session_fk (FK→sessions), command_seq, received_at, session_elapsed_ms,
+            raw_command, normalised_command, command_type, target_ip, target_port,
+            target_hostname, ici_ms, is_first_command, is_stress_trigger,
+            is_automation_signal, protocol_layer, payload_hash
+    Indices: session_fk, received_at, ici_ms
+    NOTE: Batch-inserted every 5 seconds to avoid lock contention.
+
+  TABLE 3: command_techniques
+    (Many-to-many: one command → multiple ATT&CK techniques)
+    Fields: ct_pk, command_fk (FK→commands), session_fk (denormalised for speed),
+            technique_id, technique_name, tactic, confidence, is_primary,
+            first_occurrence, classified_at
+    Indices: (session_fk, technique_id), technique_id
+
+  TABLE 4: operator_profiles
+    (Time-series: one row per profile update, every 5 commands)
+    Fields: profile_pk, session_fk, snapshot_at, session_elapsed_s,
+            command_count_at_snapshot, expertise_level, expertise_confidence,
+            primary_objective, objective_confidence, objective_scores_json,
+            operational_state, state_onset_s, top_apt_group, top_apt_score,
+            attribution_json, tool_signatures_json, avg_ici_ms, min_ici_ms,
+            max_ici_ms, stress_events_count, engagement_score_at_snapshot
+    Indices: session_fk, snapshot_at
+
+  TABLE 5: topology_snapshots
+    Fields: snapshot_pk, session_fk (NULL for base), snapshot_type,
+            created_at, trigger_reason, trigger_profile_fk, node_count, topology_json
+    Types: 'base' | 'mutation' | 'session_start'
+
+  TABLE 6: fake_hosts
+    Fields: host_pk, topology_snapshot_fk, hostname, ip_address, mac_address,
+            subnet, subnet_cidr, host_role, declared_os, declared_os_version,
+            ttl_value, tcp_window_size, response_latency_baseline_ms,
+            response_latency_jitter_pct, is_crown_jewel, is_mutation_added,
+            mutation_trigger, services_json, ad_object_json, is_synthetic, created_at
+    Indices: ip_address, hostname
+
+  TABLE 7: host_interactions
+    Fields: interaction_pk, session_fk, host_fk, first_interaction_at,
+            last_interaction_at, interaction_type, access_level, interaction_depth,
+            commands_on_host, credential_used, credential_is_synthetic,
+            data_access_attempted, data_exfil_attempted, node_status_at_end
+    Indices: session_fk, host_fk
+
+  TABLE 8: iocs (Indicators of Compromise — REAL attacker data)
+    Fields: ioc_pk, session_fk, command_fk, observed_at, ioc_type, ioc_value,
+            ioc_port, ioc_protocol, context_command, is_synthetic (always FALSE),
+            confidence, tlp_classification, shared_with_cert
+    Indices: session_fk, (ioc_type, ioc_value)
+
+  TABLE 9: synthetic_data_objects
+    (Central registry of all fake content generated and served)
+    Fields: sdo_pk, session_fk, object_type, generation_trigger, served_to_attacker,
+            served_at, parent_host_fk, object_schema_version, object_data_json,
+            is_synthetic (always TRUE), believability_score, was_queried, query_count,
+            last_queried_at, mutation_count, parent_sdo_pk (FK self-referential), created_at
+    Indices: (session_fk, object_type), (served_to_attacker, served_at)
+
+  TABLE 10: ad_synthetic_users
+    Fields: user_pk, sdo_fk, sam_account_name (UNIQUE), display_name,
+            user_principal_name, distinguished_name, department, employee_id,
+            title, manager_sam, account_created, last_logon, password_last_set,
+            is_privileged, is_service_account, password_hash_ntlm,
+            password_plaintext_fake, is_synthetic, groups_json,
+            was_dumped, dumped_in_session
+    Indices: sam_account_name, is_privileged
+
+  TABLE 11: db_synthetic_records
+    Fields: record_pk, session_fk, host_fk, db_name, table_name,
+            record_data_json, generation_trigger, was_queried, query_sql,
+            exfil_attempted, is_synthetic, created_at
+
+  TABLE 12: topology_mutations
+    Fields: mutation_pk, session_fk, triggered_at, trigger_condition,
+            trigger_profile_fk, nodes_added_json, mutation_latency_ms,
+            acknowledged_by_sm, acknowledged_at
+    Index: session_fk
+
+  TABLE 13: stress_timeline
+    Fields: stress_pk, session_fk, session_elapsed_s, ici_ms, rolling_mean_ici_ms,
+            stress_state, stress_annotation, command_fk
+    Index: session_fk
+
+  TABLE 14: audit_log
+    Fields: log_pk, event_type, event_at, component, session_fk,
+            details_json, severity
+    Types: component_start, component_stop, mutation_issued, dossier_generated,
+            error, warning
+    Index: event_at, component
+
+15.3 KEY DOSSIER QUERIES (from queries.py)
+
+  All queries use parameterised statements. No string interpolation in SQL.
+
+  Query 1 — Session Overview:
+    SELECT duration_seconds, total_commands, unique_techniques, engagement_score,
+           dwell_multiplier, attacker_source_ip, entry_protocol
+    FROM sessions WHERE session_id = ?
+
+  Query 2 — Techniques (aggregated):
+    SELECT ct.technique_id, ct.technique_name, ct.tactic,
+           MIN(c.session_elapsed_ms)/1000 AS first_observed_s,
+           COUNT(*) AS occurrence_count
+    FROM command_techniques ct
+    JOIN commands c ON ct.command_fk = c.command_pk
+    WHERE c.session_fk = (SELECT session_pk FROM sessions WHERE session_id = ?)
+    GROUP BY ct.technique_id ORDER BY occurrence_count DESC
+
+  Query 3 — Final Profile:
+    SELECT * FROM operator_profiles
+    WHERE session_fk = (SELECT session_pk FROM sessions WHERE session_id = ?)
+    ORDER BY snapshot_at DESC LIMIT 1
+
+  Query 4 — Stress Events:
+    SELECT session_elapsed_s, ici_ms, stress_state, stress_annotation
+    FROM stress_timeline
+    WHERE session_fk = (SELECT session_pk FROM sessions WHERE session_id = ?)
+    AND stress_state != 'normal'
+    ORDER BY session_elapsed_s
+
+  Query 5 — IOCs:
+    SELECT ioc_type, ioc_value, ioc_port, ioc_protocol, context_command, confidence
+    FROM iocs
+    WHERE session_fk = (SELECT session_pk FROM sessions WHERE session_id = ?)
+    ORDER BY ioc_type
+
+  Query 6 — Assets Accessed:
+    SELECT fh.hostname, fh.ip_address, fh.host_role,
+           hi.interaction_type, hi.access_level, hi.interaction_depth,
+           hi.commands_on_host, hi.data_exfil_attempted
+    FROM host_interactions hi
+    JOIN fake_hosts fh ON hi.host_fk = fh.host_pk
+    WHERE hi.session_fk = (SELECT session_pk FROM sessions WHERE session_id = ?)
+    AND hi.access_level != 'none'
+    ORDER BY hi.commands_on_host DESC
+
+  Query 7 — Mutations:
+    SELECT trigger_condition, triggered_at, nodes_added_json, mutation_latency_ms
+    FROM topology_mutations
+    WHERE session_fk = (SELECT session_pk FROM sessions WHERE session_id = ?)
+    ORDER BY triggered_at
+
+
+================================================================================
+SECTION 16 — APIs: ALL ENDPOINTS DEFINED
+================================================================================
+
+16.1 FASTAPI REST (port 8000)
+
+  GET    /api/health                      → Component health status
+  GET    /api/topology                    → Current ShadowMesh topology JSON
+  GET    /api/sessions                    → Session list (last 20)
+  GET    /api/sessions/{sid}              → Full session record
+  GET    /api/sessions/{sid}/commands     → Paginated command log
+  GET    /api/dossier/{sid}/pdf           → Download PDF (202 if not ready)
+  GET    /api/dossier/{sid}/json          → Download JSON dossier
+  POST   /api/session/start               → Start new session
+  POST   /api/session/end                 → End active session
+  POST   /api/demo/trigger/{name}         → Manual mutation override
+
+16.2 SHADOWMESH INTERNAL REST (port 8001)
+
+  GET    /topology                        → Full topology JSON
+  GET    /hosts                           → Fake host list with status
+  POST   /topology/mutate                 → Direct mutation (internal/test)
+  GET    /health                          → ShadowMesh health + queue depth
+
+16.3 EXTERNAL API
+
+  POST   https://api.anthropic.com/v1/messages
+    Called by: de_engine.py
+    Auth: x-api-key header (ANTHROPIC_API_KEY)
+    Model: claude-sonnet-4-6
+    Purpose: Dossier narrative generation
+    Rate: Once per session (max ~1 call every 30 seconds in demo)
+    Cost estimate: ~1500-2000 input tokens + 600 output tokens per dossier
+                   ≈ $0.01-0.02 per session at current Sonnet 4.6 pricing
+
+
+================================================================================
+SECTION 17 — WEBSOCKET EVENT PROTOCOL
+================================================================================
+
+17.1 ALL EVENTS EMITTED BY SERVER TO FRONTEND (Socket.io)
+
+  command_received:
+    {type: "command_received", session_id, seq, timestamp, raw_command,
+     techniques: [{id, name, tactic, confidence}], target_ip, ici_ms, severity}
+    Fired: immediately on each command
+
+  profile_update:
+    {type: "profile_update", session_id, command_count, expertise_level,
+     expertise_confidence, primary_objective, objective_confidence,
+     objective_scores, operational_state, state_onset_s, attribution,
+     tool_signatures, avg_ici_ms, stress_events, engagement_score}
+    Fired: every 5 commands
+
+  topology_mutation:
+    {type: "topology_mutation", session_id, trigger, new_nodes: [...],
+     new_edges: [...], mutation_latency_ms}
+    Fired: when fc_controller issues and SM acknowledges a mutation
+
+  session_started:
+    {type: "session_started", session_id, timestamp}
+
+  session_ended:
+    {type: "session_ended", session_id, timestamp, total_commands,
+     engagement_score, unique_techniques}
+
+  dossier_ready:
+    {type: "dossier_ready", session_id, pdf_url, json_url}
+
+  system_health:
+    {type: "system_health", shadowmesh: "ok", mirrortrap: "ok", redis: "ok"}
+    Fired: every 10 seconds
+
+  state_snapshot (on reconnect only):
+    {type: "state_snapshot", topology, profile, session_state, commands_since}
+
+17.2 EVENTS SENT BY FRONTEND TO SERVER (Socket.io)
+
+  request_snapshot:
+    Sent on connect/reconnect. Triggers server to emit state_snapshot.
+
+  session_control:
+    {action: "start" | "end" | "generate_dossier"}
+
+  demo_trigger:
+    {trigger: "apt_crown_jewel" | "ransomware_backup" | "insider_hr" | "stress"}
+
+
+================================================================================
+SECTION 18 — AI/ML PIPELINE: MODELS, INFERENCE, AND QUANTISATION
+================================================================================
+
+18.1 MODEL 1 — BERT ATT&CK CLASSIFIER
+
+  Base model: bert-base-uncased (HuggingFace hub)
+  Fine-tuning: Multi-label classification on dataset of:
+    - MITRE Caldera adversary emulation logs (labelled)
+    - DARPA TC dataset attack sequences (labelled)
+    - Manual annotation of 200+ cybersecurity commands
+    - ATT&CK dataset from MITRE's own technique examples
+  Output layer: Linear(768, 196) with sigmoid (196 = technique count in ATT&CK v14)
+  Training: Done offline. Weights bundled with repo. No training at runtime.
+
+  ONNX EXPORT (pre-demo, not at demo time):
+    from optimum.onnxruntime import ORTModelForSequenceClassification
+    model = ORTModelForSequenceClassification.from_pretrained(
+        "bert_attack_finetuned", export=True
+    )
+    # INT8 quantisation for CPU speed:
+    from onnxruntime.quantization import quantize_dynamic, QuantType
+    quantize_dynamic("model.onnx", "model_int8.onnx", weight_type=QuantType.QInt8)
+
+  Runtime inference: ONNX Runtime InferenceSession (see Section 8.3).
+  Expected latency: 200-350ms on 4-core CPU (INT8 quantised).
+
+18.2 MODEL 2 — DISTILBERT EXPERTISE CLASSIFIER
+
+  Base model: distilbert-base-uncased
+  Fine-tuning: 4-class classification (script_kiddie / intermediate / advanced / apt_grade)
+  Dataset: Synthetic command sequences generated for each expertise level.
+  Output layer: Linear(768, 4) with softmax.
+
+  NOTE: For hackathon, the DistilBERT model is SUPPLEMENTARY to the heuristic
+  scoring system (Section 8.4). The heuristic system is more interpretable
+  and reliable for a demo. DistilBERT's output is weighted at 30% of final
+  expertise score; heuristics are 70%.
+
+  ONNX export and quantisation same process as BERT above.
+
+18.3 MODEL 3 — DCGAN TRAFFIC GENERATOR
+
+  Architecture: DCGAN generator (100-dim latent → 84-dim packet descriptor)
+  Framework: PyTorch (kept as .pt file, not ONNX — inference is fast enough)
+  Load at startup: gen = torch.load("dcgan_traffic/generator.pt", map_location="cpu")
+  Inference: gen(torch.randn(BATCH_SIZE, 100)) — CPU inference
+  Expected batch time: <50ms for 30-packet batch
+
+18.4 ATT&CK GROUP VECTORS
+
+  File: /backend/models/att&ck_vectors/group_vectors.npy
+  Shape: (138, 196) — 138 named groups × 196 technique slots
+  Value: binary (1 if group uses technique, 0 if not) from MITRE ATT&CK JSON
+  Build script: python scripts/build_group_vectors.py att&ck_v14.json
+  Used for: cosine similarity attribution scoring (Section 8.7)
+
+18.5 INFERENCE PERFORMANCE TARGETS
+
+  BERT ATT&CK (INT8 ONNX):        < 400ms per command  [hard limit 500ms]
+  DistilBERT expertise:            < 200ms per command
+  DCGAN traffic batch (30 pkts):   < 50ms
+  ATT&CK cosine similarity (138):  < 5ms (NumPy vectorised)
+  Total MT pipeline per command:   < 500ms (includes Redis publish)
+
+
+================================================================================
+SECTION 19 — LLM INTEGRATION: CLAUDE API
+================================================================================
+
+19.1 API USAGE
+
+  Model:    claude-sonnet-4-6
+  Endpoint: https://api.anthropic.com/v1/messages
+  Auth:     x-api-key: {ANTHROPIC_API_KEY}
+  Version header: anthropic-version: 2023-06-01
+
+  Called ONCE per session (at dossier generation time).
+  Not called during active session (no real-time LLM dependency).
+  All other real-time intelligence is from local models.
+
+19.2 SYSTEM PROMPT (hardcoded in de_prompt.py)
+
+  "You are a senior threat intelligence analyst at CERT-In with 15 years of
+  experience analysing APT operations against Indian critical infrastructure.
+  You write concise, precise, jargon-appropriate threat intelligence reports
+  that can be read by both technical security professionals and senior
+  government officials. You do not speculate beyond what the evidence supports.
+  You cite specific observable behaviours as the basis for every analytical
+  conclusion. You never use vague language like 'possibly' or 'might' — either
+  the evidence supports a conclusion or you state the confidence level
+  explicitly. Write in formal Indian English."
+
+19.3 USER PROMPT STRUCTURE (built from session data)
+
+  Template (see full text in PRD Section 7.2):
+  - Embeds structured_data JSON inline
+  - Requests 400-word narrative
+  - Specifies 5 required narrative elements
+  - "Output only the narrative text, nothing else."
+
+  Token estimate:
+    System prompt:    ~130 tokens
+    User prompt preamble: ~80 tokens
+    Structured data JSON: ~400-800 tokens (depends on session length)
+    Total input:      ~600-1000 tokens
+    Max output:       600 tokens
+    Total per call:   ~1200-1600 tokens
+
+19.4 ERROR HANDLING FOR LLM CALL
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": API_KEY, "anthropic-version": "2023-06-01"},
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data["content"][0]["text"]
+                else:
+                    raise LLMAPIError(f"HTTP {response.status}")
+    except asyncio.TimeoutError:
+        logger.warning("LLM API timeout — using cached fallback")
+        return load_cached_narrative()
+    except Exception as e:
+        logger.error(f"LLM API error: {e}")
+        return load_cached_narrative()
+
+  Cached narrative: loaded from /backend/output/cached_dossier.json.
+  Key: session's expertise_level + primary_objective combination.
+  Pre-generate at least 4 cached dossiers covering demo scenarios.
+
+
+================================================================================
+SECTION 20 — SYNTHETIC DATA GENERATION SYSTEM
+================================================================================
+
+20.1 FAKER CONFIGURATION
+
+  from faker import Faker
+  fake = Faker('en_IN')  # Indian locale
+  Faker.seed(42)         # Deterministic seed for reproducibility
+
+  Indian-locale specific data available:
+    fake.name_male(), fake.name_female() → realistic Indian names
+    fake.aadhaar_id() [custom] → 12-digit numeric (structurally valid)
+    fake.ifsc_code() [custom] → correct IFSC format (4 alpha + 0 + 6 alpha/num)
+    fake.local_latlng("IN") → Indian coordinates
+
+20.2 AD USER GENERATION (100 users at init)
+
+  Departments and distribution:
+    Core Banking Operations: 20 users
+    IT Infrastructure: 15 users
+    SWIFT Operations: 8 users
+    Finance & Accounts: 12 users
+    Human Resources: 10 users
+    Retail Banking: 15 users
+    Helpdesk: 10 users
+    Management: 5 users (privileged)
+    Service Accounts: 5 (is_service_account=TRUE)
+
+  For each user:
+    display_name = fake.name()
+    # Convert to lowercase firstinitial.lastname format:
+    parts = display_name.lower().split()
+    sam_account_name = f"{parts[0][0]}.{parts[-1]}"
+    user_principal_name = f"{sam_account_name}@{PHANTASM_DOMAIN}"
+    distinguished_name = f"CN={display_name},OU={dept},DC=bankname-internal,DC=local"
+    employee_id = f"EMP-{random.randint(2018,2024)}-{random.randint(10000,99999)}"
+    account_created = fake.date_between(start_date='-5y', end_date='-6m')
+    last_logon = fake.date_time_between(start_date='-7d', end_date='now')
+    password_last_set = fake.date_between(start_date='-90d', end_date='-1d')
+
+  Synthetic NTLM hash:
+    import hashlib
+    password_hash_ntlm = hashlib.md5(
+        f"{session_id}{sam_account_name}PHANTASM_SYNTHETIC_SALT".encode()
+    ).hexdigest()
+    # 32 hex chars — valid format, cryptographically inert
+
+  password_plaintext_fake drawn from weak_passwords.json pool:
+    ["P@ssw0rd123", "Admin@2024", "BankName@2025", "Welcome@123",
+     "Qwerty@456", "Secure@2024", "AxisBank@123", "HDFC@2025", ...]
+
+20.3 DATABASE RECORD GENERATION
+
+  customer_accounts: 100 records at init, 50 more per APT trigger
+    Fields: account_no (11 digits), customer_name, dob, mobile (masked),
+            email, account_type (SAVINGS/CURRENT/FIXED), balance,
+            branch_ifsc (valid format), branch_name, pan (valid format), kyc_status
+
+  PAN format enforcement: [A-Z]{5}[0-9]{4}[A-Z]{1}
+    Generated as: {5 random uppercase} + {4 random digits} + {1 random uppercase}
+    Structurally valid, never matches any real PAN.
+
+  IFSC format: [A-Z]{4}0[A-Z0-9]{6}
+    SBI: SBIN0XXXXXX, HDFC: HDFC0XXXXXX, AXIS: UTIB0XXXXXX, etc.
+
+  transaction_log: 200 records at init (last 30 days)
+    Columns: txn_id (UUID), account_no (FK to customer_accounts), amount,
+             txn_type (CREDIT/DEBIT), channel, timestamp, merchant, status
+
+20.4 CONSISTENCY ENFORCEMENT (sm_synthetic.py)
+
+  Shared identity registry (in-memory dict, session-scoped):
+    identity_registry = {
+        "usernames": {"r.sharma": {"dn": "CN=...", "dept": "IT", ...}},
+        "hostnames": {"dc-auth-prod": "192.168.10.31"},
+        "ips": {"192.168.10.31": "dc-auth-prod.bankname-internal.local"}
+    }
+
+  Before generating any new entity name: check registry.
+  Before serving: validate temporal coherence (timestamps in correct order).
+  Before serving DB records: validate FK relationships (account_no must exist).
+
+
+================================================================================
+SECTION 21 — PDF DOSSIER GENERATION (WEASYPRINT + JINJA2)
+================================================================================
+
+21.1 TEMPLATE STRUCTURE (dossier.html.j2)
+
+  CSS embedded in <style> block within the HTML template.
+  CSS @page rule sets A4 format, 20mm margins, page numbers via counter(page).
+  @page :first for distinct header on first page only.
+
+  Key CSS:
+    @page {
+        size: A4;
+        margin: 20mm 18mm;
+        @bottom-center { content: "Page " counter(page) " of " counter(pages); }
+        @bottom-left { content: "PHANTASM — COGNITIVE HONEYPOT SYSTEM"; }
+        @bottom-right { content: "CERT-In MIS Format • CONFIDENTIAL"; }
+    }
+
+  Section ordering in template:
+    1. Header (PHANTASM wordmark + CONFIDENTIAL stamp + session ID + amber rule)
+    2. Session Overview table
+    3. Operator Profile summary table
+    4. Attack Timeline table (ATT&CK techniques in chronological order)
+    5. IOC box (red left border, C2 IPs in monospace)
+    6. Assets Targeted table
+    7. Analyst Assessment section (LLM narrative, italic, amber left border)
+    8. CERT-In MIS fields (pre-filled incident report fields)
+
+21.2 JINJA2 RENDERING
+
+  env = jinja2.Environment(loader=jinja2.FileSystemLoader("/backend/templates"))
+  template = env.get_template("dossier.html.j2")
+  html_content = template.render(
+      session=session_data,
+      profile=final_profile,
+      techniques=techniques_list,
+      iocs=iocs_data,
+      assets=assets_data,
+      narrative=llm_narrative,
+      mutations=mutations_data,
+      cert_in=cert_in_fields,
+      generated_at=datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+  )
+
+21.3 WEASYPRINT PDF RENDERING
+
+  from weasyprint import HTML, CSS
+  HTML(string=html_content, base_url="/backend/templates").write_pdf(pdf_path)
+
+  Output: /backend/output/{session_id}_dossier.pdf
+
+  Font embedding: WeasyPrint downloads Inter from Google Fonts at generation time.
+  DEMO RISK: Requires internet for font download. Pre-download fonts:
+    mkdir /backend/static/fonts
+    wget "https://fonts.gstatic.com/s/inter/v13/..." -O /backend/static/fonts/inter.woff2
+  Reference in CSS: @font-face { src: url('/backend/static/fonts/inter.woff2'); }
+
+
+================================================================================
+SECTION 22 — DOCKER COMPOSE DEPLOYMENT
+================================================================================
+
+22.1 docker-compose.yml (COMPLETE)
+
+  version: '3.8'
+
+  services:
+    redis:
+      image: redis:7.2-alpine
+      container_name: phantasm-redis
+      command: redis-server --save 60 1 --loglevel warning
+      ports:
+        - "127.0.0.1:6379:6379"
+      volumes:
+        - redis_data:/data
+      healthcheck:
+        test: ["CMD", "redis-cli", "ping"]
+        interval: 5s
+        timeout: 3s
+        retries: 3
+      restart: unless-stopped
+
+    phantasm_db:
+      image: alpine:3.19
+      container_name: phantasm-db-vol
+      volumes:
+        - sqlite_data:/data
+      command: ["true"]   # Dummy service just to create the volume
+
+  volumes:
+    redis_data:
+    sqlite_data:
+
+  NOTE: All Python backend processes and the React frontend run DIRECTLY
+  on the host (not in Docker), for two reasons:
+    1. NFQueue requires direct kernel access — doesn't work inside Docker network
+    2. Simpler debugging during the 24-hour hackathon
+  Only Redis is containerised.
+
+22.2 PROCESS MANAGEMENT
+
+  During development: run each process in a separate terminal.
+
+  Start order (mandatory):
+    1. docker-compose up -d           → Redis
+    2. python sm_core.py              → ShadowMesh (requires sudo for NFQueue)
+    3. python mt_engine.py            → MirrorTrap
+    4. python fc_controller.py        → Feedback Controller
+    5. python session_mgr.py          → Session Manager
+    6. python de_engine.py            → Dossier Engine (daemon mode)
+    7. uvicorn api_server:combined_app --port 8000  → API Server
+    8. npm run dev                    → React Frontend (port 3000)
+
+  For hackathon demo: use tmux with 8 panes. One process per pane.
+  Pre-configured tmux layout should be part of setup.sh.
+
+
+================================================================================
+SECTION 23 — PERFORMANCE BUDGETS AND LATENCY CONTRACTS
+================================================================================
+
+23.1 HARD LATENCY REQUIREMENTS
+
+  All measured from event occurrence to observable output.
+
+  Requirement → Budget → How Enforced
+  ─────────────────────────────────────────────────────────────────────────────
+  NFQueue packet response time          < 2× host baseline    Latency jitter logic
+  Command ingestion to ATT&CK classify  < 500ms (hard)        INT8 ONNX + keyword fallback
+  MT profile update to Redis publish    < 200ms               Async, no blocking I/O
+  Redis publish to WebSocket delivery   < 100ms               Socket.io async bridge
+  Dashboard DOM update after WS event   < 16ms (60fps)        React reconciliation only touches slices
+  Topology mutation execution           < 5 seconds           Async host materialisation
+  Dossier generation end-to-end         < 60 seconds (hard)   Cached fallback if LLM slow
+  API endpoint response time            < 200ms (95th pct)    SQLite WAL + aiosqlite
+  ─────────────────────────────────────────────────────────────────────────────
+
+23.2 PERFORMANCE INSTRUMENTATION
+
+  Measure and log these latencies during pre-demo testing:
+    1. BERT inference time per command (median, 95th, 99th percentile)
+    2. Redis pub latency (timestamp before vs after publish call)
+    3. WebSocket delivery (timestamp in publish event vs timestamp in browser)
+    4. Topology mutation end-to-end (fc publish time vs dashboard graph update)
+    5. SQLite batch flush time (5-second intervals, measure each flush)
+
+  All measurements logged to /backend/logs/performance.log.
+  environment_check.py includes performance assertions for all of the above.
+
+
+================================================================================
+SECTION 24 — ERROR HANDLING AND FALLBACK STRATEGY
+================================================================================
+
+24.1 PER-COMPONENT ERROR HANDLING
+
+  ALL Python components:
+    - Wrap entire main() in try/except
+    - On unexpected exception: log to /backend/logs/{component}.log
+    - Set health heartbeat to "error" state (HSET phantasm:system:health)
+    - Continue running if possible (most errors are per-event, not fatal)
+    - Never crash the process on a single malformed event
+
+  NFQueue packet callback (sm_core.py):
+    - If emulator raises exception: drop the packet, log the error
+    - Never propagate exception to NFQueue (would halt packet processing)
+    - Per-service error counter: if >10 errors in 60s → disable service emulator
+
+  BERT inference (mt_classifier.py):
+    - If ONNX inference fails: use keyword fallback with confidence=0.65
+    - Log ONNX errors; switch to keyword-only mode if 3 consecutive failures
+
+  Redis connection (all components):
+    - Use redis-py's automatic reconnect: Redis(retry_on_timeout=True)
+    - Backoff: 1s → 2s → 4s (exponential, cap at 30s)
+    - During Redis outage: buffer events in memory (list, max 500 items)
+    - Flush buffer on reconnect
+
+  WebSocket disconnection (frontend):
+    - Socket.io client reconnects automatically (reconnectionDelay: 1000ms)
+    - On reconnect: emit "request_snapshot" to restore state
+    - Buffer UI updates in-memory during disconnect; apply on reconnect
+
+  LLM API failure (de_engine.py):
+    - See Section 19.4
+    - Fallback: cached narrative pre-generated for demo profiles
+    - PDF still generates from cached narrative
+    - Status: dossier:{sid}:status = "ready" (fallback is transparent)
+
+24.2 DEMO RECOVERY PROCEDURES
+
+  SCENARIO: NFQueue stops responding
+    1. sudo iptables -D INPUT -i shadowmesh0 -j NFQUEUE --queue-num 1
+    2. sudo iptables -I INPUT -i shadowmesh0 -j NFQUEUE --queue-num 1
+    3. pkill -f sm_core.py && sudo python sm_core.py
+    Recovery time: ~30 seconds
+
+  SCENARIO: Redis crashes
+    1. docker-compose restart redis
+    2. All components auto-reconnect (retry backoff)
+    3. Session continues from buffered in-memory state
+    Recovery time: ~10 seconds
+
+  SCENARIO: Frontend WebSocket disconnects
+    1. Socket.io auto-reconnects within 3-5 seconds
+    2. State restored via "state_snapshot" event
+    Recovery time: ~5 seconds (invisible to judges in most cases)
+
+  SCENARIO: BERT inference too slow (>1 second)
+    1. Edit mt_engine.py: set USE_KEYWORD_FALLBACK_ONLY=True
+    2. Restart mt_engine.py
+    3. Classification still works, just with keyword matching
+    Recovery time: ~10 seconds
+
+
+================================================================================
+SECTION 25 — TESTING PLAN AND VALIDATION CRITERIA
+================================================================================
+
+25.1 PRE-DEMO VALIDATION CHECKLIST (environment_check.py)
+
+  Run as: python environment_check.py
+
+  Checks and expected outcomes:
+    □ Redis: redis-py PING returns PONG
+    □ SQLite: DB file exists, all 14 tables present
+    □ NFQueue: iptables rule set, queue bound
+    □ BERT ONNX: test inference on "nmap -sV" returns technique ID within 500ms
+    □ DistilBERT ONNX: test inference runs without error
+    □ DCGAN: torch.load succeeds, test forward pass runs
+    □ ATT&CK vectors: group_vectors.npy shape (138, 196)
+    □ Redis pub/sub: publish to "sm:events", verify mt_engine receives it
+    □ FastAPI: GET /api/health returns 200
+    □ WebSocket: Socket.io connect from localhost test client
+    □ React build: npm run build completes without errors
+    □ Nmap test: nmap -sV 192.168.10.31 returns at least 3 open ports
+    □ AD query: ldapsearch on 192.168.10.31:389 returns user entries
+    □ Dossier: generate test dossier from fixture session, PDF exists in <60s
+    □ Cached dossier: disconnect API key, regenerate, fallback returns in <5s
+
+25.2 ATT&CK CLASSIFIER VALIDATION (TEST-MT-01)
+
+  Run: python mt_classifier.py --test-mode --test-file tests/att&ck_test_commands.json
+  Input: 50 labelled commands (extended from Appendix A of PRD)
+  Expected: accuracy > 75% (>37.5 of 50 correct)
+  Accept: >70% if average confidence on correct answers > 85%
+  Fail: < 70% accuracy → investigate training data and threshold
+
+25.3 FULL INTEGRATION TEST (IT-01)
+
+  Run the demo command sequence from PRD Appendix B in full:
+  Expected (7 mandatory outcomes):
+    1. 15 base hosts visible in graph within 30 seconds of scan
+    2. First ATT&CK technique displayed within 60 seconds
+    3. Expertise reaches APT-Grade within first 10 commands
+    4. Adaptive trigger fires, crown jewel nodes appear in graph
+    5. Stress chart shows visible acceleration during lateral movement
+    6. Dossier PDF available within 60 seconds of session end
+    7. Zero unhandled exceptions in any process log
+
+  Run this test 3 times before demo. Pass = all 3 runs succeed with 7/7 outcomes.
+
+25.4 TIMING FINGERPRINT TEST (TEST-SM-03)
+
+  Run: python tests/test_timing_fingerprint.py
+  Action: 100 consecutive pings to each fake host
+  Expected: RTT standard deviation is non-zero (gaussian distribution visible)
+  Constant RTT (σ < 0.1ms) would indicate non-randomised response → fail
+
+25.5 NMAP FINGERPRINT TEST (TEST-SM-01)
+
+  Run: sudo nmap -sV -O -p- {shadowmesh_ip}
+  Expected:
+    - All 15 declared hosts visible
+    - OS fingerprints match declared values
+    - No "honeypot" or "decoy" warnings in output
+    - Service versions match declared emulators
+  Pass/fail: binary
+
+
+================================================================================
+SECTION 26 — SECURITY CONSTRAINTS FOR PHANTASM ITSELF
+================================================================================
+
+26.1 MANAGEMENT INTERFACE ISOLATION
+
+  ALL PHANTASM management interfaces bind to 127.0.0.1 only:
+    FastAPI:   uvicorn --host 127.0.0.1 --port 8000
+    ShadowMesh: --host 127.0.0.1 --port 8001
+    React dev: vite --host 127.0.0.1 --port 3000
+    Redis:     127.0.0.1:6379 (Docker port mapping to loopback)
+
+  ShadowMesh's attacker-facing interface is shadowmesh0 (a separate dummy
+  network interface), not any localhost port.
+
+26.2 NO REAL CREDENTIALS ANYWHERE
+
+  PHANTASM codebase, configuration files, and generated outputs must contain
+  ZERO real credentials or real PII. This is enforced by:
+    - All AD passwords drawn from weak_passwords.json (known templates)
+    - All NTLM hashes generated from deterministic synthetic formula
+    - All customer data generated by Faker with no connection to real individuals
+    - ANTHROPIC_API_KEY in .env (gitignored, never hardcoded)
+
+26.3 ATTACKER-FACING vs MANAGEMENT TRAFFIC
+
+  The NFQueue hook only processes packets arriving on shadowmesh0 interface.
+  Packets on lo (localhost) or eth0 (real management NIC) are never queued.
+  The iptables rule explicitly names -i shadowmesh0.
+
+26.4 PROCESS ISOLATION
+
+  ShadowMesh runs as root (required for NFQueue).
+  All other processes run as non-root user.
+  sm_core.py drops supplementary privileges after binding NFQueue:
+    import prctl
+    prctl.set_proctitle("phantasm-shadowmesh")
+    # After NFQueue bind: drop CAP_NET_ADMIN where possible
+
+
+================================================================================
+SECTION 27 — DATA INTEGRITY AND ETHICAL COMPLIANCE
+================================================================================
+
+27.1 THE SYNTHETIC DATA GUARANTEE
+
+  Every table that stores generated (non-attacker) data carries:
+    is_synthetic BOOLEAN DEFAULT TRUE
+
+  The iocs table is the sole exception — it stores real attacker observables.
+  is_synthetic BOOLEAN DEFAULT FALSE is set only in the iocs table.
+
+27.2 REAL DATA STORED BY PHANTASM
+
+  PHANTASM stores the following real (non-synthetic) data:
+    - Attacker source IP and port (iocs table, sessions.attacker_source_ip)
+    - Raw command strings as typed by the attacker (commands.raw_command)
+    - C2 callback IPs, domains, payload hashes (iocs table)
+    - Timestamps of all activity
+
+  Nothing else corresponds to real individuals, real accounts, real
+  credentials, or real network infrastructure.
+
+27.3 SYNTHETIC NTLM HASH SAFETY
+
+  NEVER generate or store real NTLM hashes.
+  Synthetic hash formula:
+    hash = hashlib.md5(
+        f"{session_id}{username}PHANTASM_SYNTHETIC_SALT".encode()
+    ).hexdigest()
+
+  This produces a valid 32-character hex format but is NOT a real NTLM hash.
+  It CANNOT be used in pass-the-hash attacks against real systems.
+  The PHANTASM_SYNTHETIC_SALT constant is stored in .env.
+
+27.4 TLP CLASSIFICATION FOR IOCs
+
+  All IOCs default to TLP:AMBER (organisational sharing only).
+  CERT-In submission would require analyst review before upgrading to TLP:GREEN.
+  shared_with_cert flag (default FALSE) tracks submission status.
+
+27.5 LEGAL COMPLIANCE
+
+  PHANTASM operates under India's IT Act 2000 / 2008 amendments.
+  Honeypot operation is legal on organisational infrastructure.
+  PHANTASM does not: access attacker systems, execute offensive code, or
+  store real personal data. These constraints must be maintained in all code.
+
+
+================================================================================
+SECTION 28 — INTER-COMPONENT COMMUNICATION MAP
+================================================================================
+
+  Component             → Channel/Method             → Target
+  ──────────────────────────────────────────────────────────────────────────────
+  NFQueue (kernel)      → nfqueue-bindings callback  → sm_core.py
+  sm_core.py            → Redis PUBLISH sm:events    → mt_engine.py
+  sm_core.py            → Redis SUBSCRIBE sm:mutations → fc_controller
+  sm_core.py            → REST :8001                 → api_server.py (GET topology)
+  mt_engine.py          → Redis SUBSCRIBE sm:events  → (consumes from sm)
+  mt_engine.py          → Redis PUBLISH mt:profile   → fc_controller + api_server
+  mt_engine.py          → aiosqlite WRITE            → SQLite (commands, cmd_techniques)
+  fc_controller.py      → Redis SUBSCRIBE mt:profile → (evaluates triggers)
+  fc_controller.py      → Redis PUBLISH sm:mutations → sm_core.py
+  session_mgr.py        → Redis READ session:{id}:*  → (session state)
+  session_mgr.py        → aiosqlite WRITE (batch)   → SQLite (flush worker)
+  session_mgr.py        → de_engine.generate()       → (direct function call)
+  de_engine.py          → aiosqlite READ             → SQLite (dossier queries)
+  de_engine.py          → aiohttp POST               → Anthropic API (Claude)
+  de_engine.py          → WeasyPrint                 → PDF file (filesystem)
+  de_engine.py          → Redis SET                  → dossier:{id}:status
+  de_engine.py          → Redis PUBLISH              → phantasm:dashboard
+  api_server.py         → Redis SUBSCRIBE            → phantasm:dashboard (bridge)
+  api_server.py         → Socket.io EMIT             → React frontend
+  api_server.py         → aiosqlite READ             → SQLite (session history)
+  api_server.py         → Redis HGETALL              → phantasm:system:health
+  React frontend        → Socket.io EMIT             → api_server.py
+  React frontend        → HTTP GET                   → api_server.py (REST)
+  ──────────────────────────────────────────────────────────────────────────────
+
+  All inter-component communication is through EITHER Redis pub/sub OR the
+  FastAPI REST/WebSocket layer. No components call each other's functions
+  directly EXCEPT session_mgr → de_engine (co-located, same process or import).
+
+  Rationale: This loose coupling means any single component can be restarted
+  without killing the others. Critical for demo recovery procedures.
+
+
+================================================================================
+SECTION 29 — BUILD ORDER AND CRITICAL PATH
+================================================================================
+
+29.1 DEPENDENCY ORDER
+
+  The following dependency chain is absolute. Each item must work before
+  the next can be meaningfully developed:
+
+    Redis running (Docker)
+      ↓
+    SQLite schema initialised (db/migrations.py)
+      ↓
+    sm_core.py topology generation (no NFQueue needed for topology testing)
+      ↓
+    mt_engine.py classifier (can test with manual Redis PUBLISH)
+      ↓
+    fc_controller.py (depends on mt:profile channel being live)
+      ↓
+    api_server.py REST (depends on Redis + SQLite)
+      ↓
+    api_server.py WebSocket (depends on REST working)
+      ↓
+    React frontend (depends on WebSocket working)
+      ↓
+    session_mgr.py (depends on SQLite + Redis)
+      ↓
+    de_engine.py (depends on session_mgr completing a session)
+      ↓
+    Full integration
+
+29.2 PARALLEL DEVELOPMENT TRACKS
+
+  Track A (Member 1 — ShadowMesh):
+    Phase 1: sm_topology.py + fake_hosts generation (no NFQueue)
+    Phase 2: NFQueue hook + packet dispatch
+    Phase 3: Service emulators (start with SSH, SMB, HTTP)
+    Phase 4: AD emulator + background traffic
+    MILESTONE: Nmap -sV returns all 15 hosts with correct services
+
+  Track B (Member 2 — MirrorTrap):
+    Phase 1: mt_classifier.py (ONNX inference wrapper)
+    Phase 2: mt_engine.py Redis integration (manual publish test)
+    Phase 3: mt_expertise.py + mt_timing.py (heuristics)
+    Phase 4: mt_attribution.py (cosine similarity)
+    MILESTONE: 20-command sequence generates complete profile
+
+  Track C (Member 3 — Integration):
+    Phase 1: api_server.py FastAPI + REST endpoints
+    Phase 2: api_server.py WebSocket + Redis bridge
+    Phase 3: fc_controller.py triggers + mutation directives
+    Phase 4: session_mgr.py lifecycle + flush worker
+    MILESTONE: Trigger fires, mutation directive issued, received by SM
+
+  Track D (Member 4 — Dossier):
+    Phase 1: SQLite schema + dossier queries
+    Phase 2: de_prompt.py + Claude API call + narrative test
+    Phase 3: dossier.html.j2 template + WeasyPrint render
+    Phase 4: Cached fallback + output file serving
+    MILESTONE: PDF generated from fixture session in <60 seconds
+
+  Track E (Member 5 — Frontend):
+    Phase 1: React + Vite scaffold + Zustand store + CSS tokens
+    Phase 2: Socket.io connection + event handler skeleton
+    Phase 3: D3 network graph (static first, then live updates)
+    Phase 4: Profile card components + command feed + stress chart
+    MILESTONE: Dashboard updates live from test session
+
+29.3 INTEGRATION ORDER
+
+  After all tracks reach their milestones:
+    1. Connect Track B → Track C (mt:profile → fc_controller)
+    2. Connect Track A → Track B (sm:events → mt_engine)
+    3. Connect Track C → Track A (sm:mutations → sm_core)
+    4. Connect Track C → Track E (WebSocket events)
+    5. Connect Track D → Track C (session end → dossier trigger)
+    6. Run full demo command sequence, observe all panels
+    7. Fix integration bugs
+    8. Rehearsal ×3
+
+
+================================================================================
+SECTION 30 — CONFIGURATION MANAGEMENT
+================================================================================
+
+30.1 CONFIGURATION FILES
+
+  /backend/.env (secret, gitignored):
+    ANTHROPIC_API_KEY=sk-ant-...
+    REDIS_URL=redis://127.0.0.1:6379
+    SQLITE_DB_PATH=/data/phantasm.db
+    SHADOWMESH_INTERFACE=shadowmesh0
+    NFQUEUE_QUEUE_NUM=1
+    LOG_LEVEL=INFO
+    DEMO_MODE=true
+    SHADOWMESH_HOST_COUNT=15
+    PHANTASM_DOMAIN=bankname-internal.local
+    MODEL_DIR=/home/{user}/phantasm/backend/models
+    OUTPUT_DIR=/home/{user}/phantasm/backend/output
+    PHANTASM_SYNTHETIC_SALT=PHANTASM-SIH2026-SALT-INTERNAL
+
+  /backend/config.py:
+    All configuration loaded from environment via python-dotenv.
+    Provides typed config objects imported by all components.
+    No raw os.getenv() calls outside config.py.
+
+  /frontend/.env.local:
+    VITE_API_URL=http://localhost:8000
+    VITE_WS_URL=http://localhost:8000
+
+30.2 LOGGING
+
+  Each component logs to its own file in /backend/logs/:
+    shadowmesh.log, mirrortrap.log, feedback.log,
+    session.log, dossier.log, api.log, performance.log
+
+  Log format: {timestamp} [{level}] [{component}] {message}
+  Level: INFO in production mode, DEBUG during development.
+  Rotate: logging.handlers.RotatingFileHandler (max 10MB, 3 backups)
+
+  CRITICAL RULE: Never log raw_command content at WARNING/ERROR level
+  (avoid sensitive data in general logs). Command content only in DEBUG
+  and the commands SQLite table.
+
+30.3 REQUIREMENTS FILES
+
+  /backend/requirements.txt (pin ALL versions):
+    fastapi==0.110.0
+    uvicorn[standard]==0.27.1
+    redis[asyncio]==5.0.1
+    aiosqlite==0.20.0
+    scapy==2.5.0
+    nfqueue-bindings==0.6
+    impacket==0.11.0
+    torch==2.2.1
+    transformers==4.38.2
+    onnxruntime==1.17.1
+    scikit-learn==1.4.0
+    numpy==1.26.4
+    scipy==1.12.0
+    Faker==24.2.0
+    cryptography==42.0.5
+    jinja2==3.1.3
+    weasyprint==60.2
+    aiohttp==3.9.3
+    python-socketio==5.11.1
+    python-dotenv==1.0.1
+
+  /frontend/package.json:
+    "react": "^18.2.0"
+    "react-dom": "^18.2.0"
+    "vite": "^5.1.0"
+    "d3": "^7.9.0"
+    "socket.io-client": "^4.7.4"
+    "recharts": "^2.12.2"
+    "framer-motion": "^11.0.14"
+    "tailwindcss": "^3.4.1"
+    "zustand": "^4.5.2"
+    "lucide-react": "^0.344.0"
+
+30.4 SETUP SCRIPT (setup.sh)
+
+  #!/bin/bash
+  # Run as root
+
+  # System packages
+  apt update && apt install -y python3.11 python3.11-venv ...
+
+  # Python venv
+  python3.11 -m venv /home/$SUDO_USER/phantasm/venv
+  source /home/$SUDO_USER/phantasm/venv/bin/activate
+  pip install -r backend/requirements.txt
+
+  # Docker + Redis
+  docker-compose up -d
+
+  # Network interface
+  ip link add shadowmesh0 type dummy
+  ip link set shadowmesh0 up
+  ip addr add 192.168.10.1/24 dev shadowmesh0
+  ip addr add 192.168.20.1/24 dev shadowmesh0
+  ip addr add 192.168.30.1/24 dev shadowmesh0
+  iptables -I INPUT -i shadowmesh0 -j NFQUEUE --queue-num 1
+  iptables -I FORWARD -i shadowmesh0 -j NFQUEUE --queue-num 1
+
+  # SQLite init
+  python backend/db/migrations.py
+
+  # Synthetic data bootstrap
+  python backend/db/init_synthetic.py
+
+  # Frontend
+  cd frontend && npm install && cd ..
+
+  # Validation
+  python backend/environment_check.py
+
+  echo "PHANTASM environment ready."
+
+
+================================================================================
+APPENDIX A — COMPONENT INTERFACE CONTRACTS
+================================================================================
+
+A.1 sm_core.py PUBLIC INTERFACE
+
+  - REST API on localhost:8001 (see Section 5.5)
+  - Redis subscriber: "sm:mutations" channel
+  - Redis publisher: "sm:events" channel
+  - Internal: topology_state object (shared in-process with service emulators)
+
+A.2 mt_engine.py PUBLIC INTERFACE
+
+  - Redis subscriber: "sm:events" channel
+  - Redis publisher: "mt:profile" channel
+  - Writes to SQLite: commands, command_techniques, stress_timeline tables
+  - Exposes: current_profile (in-memory, read by session_mgr)
+
+A.3 fc_controller.py PUBLIC INTERFACE
+
+  - Redis subscriber: "mt:profile" channel
+  - Redis publisher: "sm:mutations" channel
+  - Redis read/write: mutation rate limit keys
+  - Writes to SQLite: topology_mutations table
+
+A.4 session_mgr.py PUBLIC INTERFACE
+
+  - Function: start_session() → session_id
+  - Function: end_session(session_id) → None (triggers dossier)
+  - Function: get_session_record(session_id) → full session dict
+  - Redis read/write: session state keys
+  - Writes to SQLite: all tables (via flush worker)
+
+A.5 de_engine.py PUBLIC INTERFACE
+
+  - Function: generate_dossier(session_id) → pdf_path, json_path
+  - HTTP POST to Anthropic API
+  - Redis write: dossier:{id}:status
+  - Redis publish: phantasm:dashboard (dossier_ready event)
+  - File write: /backend/output/{session_id}_dossier.{pdf,json}
+
+A.6 api_server.py PUBLIC INTERFACE
+
+  - REST API on localhost:8000 (see Section 16.1)
+  - Socket.io server on ws://localhost:8000 (see Section 17)
+
+
+================================================================================
+APPENDIX B — KNOWN RISKS AND MITIGATIONS (TECHNICAL)
+================================================================================
+
+RISK: NFQueue requires root — entire ShadowMesh runs as root
+  MITIGATION: sm_core.py drops unnecessary capabilities after binding.
+  Acceptable: demo is on a controlled machine, not production.
+
+RISK: BERT inference exceeds 500ms budget on slow CPU
+  MITIGATION: INT8 quantisation + keyword fallback.
+  Measured pre-demo on target hardware.
+
+RISK: WeasyPrint font download fails (no internet during demo)
+  MITIGATION: Pre-download Inter font to /backend/static/fonts/.
+  Reference via local @font-face in CSS template.
+
+RISK: Multiple simultaneous command events overwhelm mt_engine
+  MITIGATION: asyncio.Queue with bounded depth (max 100 items).
+  Items older than 10 seconds dropped with warning log.
+  Demo involves a single attacker at human typing speed — not a realistic
+  risk, but must be handled.
+
+RISK: D3 force simulation causes jank with 25 nodes
+  MITIGATION: Fix layout of base 15 nodes. Only re-simulate the 3-8 new
+  mutation-added nodes using a localised force with a smaller alpha.
+  Max graph nodes: 25.
+
+RISK: SQLite WAL file grows large during long test sessions
+  MITIGATION: PRAGMA wal_checkpoint(TRUNCATE) called after each session ends.
+
+
+================================================================================
+APPENDIX C — GLOSSARY OF TECHNICAL TERMS
+================================================================================
+
+  ASGI     Asynchronous Server Gateway Interface — Python async web standard
+  ICI      Inter-Command Interval — time between consecutive attacker commands
+  INT8     8-bit integer quantisation — reduces model size and speeds CPU inference
+  ONNX     Open Neural Network Exchange — portable model format for runtime inference
+  NFQueue  Linux kernel netfilter queue — routes packets to userspace for handling
+  TDP      Topology Directive Payload — the mutation instruction sent to ShadowMesh
+  TGT/TGS  Ticket-Granting Ticket / Ticket-Granting Service — Kerberos auth tokens
+  TLP      Traffic Light Protocol — threat intelligence sharing classification
+  WAL      Write-Ahead Logging — SQLite concurrency mode enabling concurrent reads
+  WMI      Windows Management Instrumentation — LOLBin used in lateral movement
+  BFSI     Banking, Financial Services & Insurance — target sector for fake network
+
+================================================================================
+                    PHANTASM TRD v1.0 — COMPLETE
+         "The attacker has nothing. We have everything."
+         SIH 2026 | VIT Vellore | Blockchain & Cybersecurity Track
+
+         Components: 9 | Tables: 14 | Redis Keys: 12 | API Endpoints: 11
+         WebSocket Events: 8 | Models: 3 | External APIs: 1 (Claude)
+         Languages: Python 3.11, TypeScript/React 18, SQL, Jinja2 HTML
+================================================================================

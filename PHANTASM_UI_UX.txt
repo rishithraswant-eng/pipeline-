@@ -1,0 +1,1062 @@
+================================================================================
+                    PHANTASM — UI/UX & DESIGN REQUIREMENTS
+              Web Dashboard: Full Specification for Frontend Engineer
+================================================================================
+  Document Version:   1.0
+  Author:             Team Lead, PHANTASM Core Team
+  For:                Member 5 (Frontend Dashboard Engineer)
+  Hackathon:          Smart India Hackathon 2026 — Internal Round
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1: DESIGN PHILOSOPHY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHANTASM's dashboard is not a utility interface. It is a command centre.
+It must communicate power, intelligence, and precision at a glance — because
+the 90 seconds a judge spends looking at it must leave a permanent impression.
+
+Three words define the design language: CINEMATIC. SURGICAL. ALIVE.
+
+CINEMATIC — The dashboard looks like something from a high-budget cyber
+thriller. Dark background, amber light sources, data that breathes and moves.
+Not garish — restrained. Every animation serves information, not decoration.
+
+SURGICAL — Nothing is on screen that doesn't need to be. Every pixel earns
+its place. Information density is high but never cluttered. A trained eye
+can absorb the entire dashboard state in under 3 seconds.
+
+ALIVE — The dashboard is never static. The network graph pulses. The command
+feed scrolls. The profile card updates. The stress chart draws itself in
+real-time. A static screenshot of this dashboard looks incomplete — because
+it is meant to be seen in motion.
+
+The visual inspiration is the intersection of:
+  - Bloomberg Terminal (information density, professional credibility)
+  - Nmap Zenmap (network topology as primary visual)
+  - Modern SOC dashboards (Splunk SIEM, Darktrace Antigena)
+  - Cinematic UI design (Ex Machina, Tron: Legacy interfaces)
+
+Avoid: gradients everywhere, neon overload, rounded-everything softness.
+This system deals with nation-state threats. It should look like it knows that.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2: DESIGN SYSTEM — TOKENS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2.1 COLOUR PALETTE
+────────────────────
+
+BACKGROUND SYSTEM:
+  --bg-void:        #050508    Page root background. Near-black, slight blue
+  --bg-surface:     #0C0D14    Card/panel backgrounds
+  --bg-elevated:    #12141F    Hover states, active panels
+  --bg-border:      #1E2030    Panel borders, dividers
+  --bg-subtle:      #252840    Input backgrounds, subtle separators
+
+AMBER ACCENT SYSTEM (Primary Brand Colour):
+  --amber-glow:     #F59E0B    Primary amber — active states, highlights
+  --amber-dim:      #B45309    Secondary amber — secondary text, borders
+  --amber-ghost:    #78350F    Low-opacity amber for glow effects
+  --amber-pulse:    #FCD34D    Bright amber for pulse animations only
+
+TEXT SYSTEM:
+  --text-primary:   #F1F5F9    Primary body text
+  --text-secondary: #94A3B8    Secondary labels, metadata
+  --text-muted:     #475569    Placeholder, disabled states
+  --text-code:      #E2E8F0    Monospace terminal output
+  --text-amber:     #FCD34D    Amber-tinted labels for emphasis
+
+SEMANTIC COLOUR SYSTEM (ATT&CK Technique Severity):
+  --tactic-recon:       #3B82F6    Blue — Discovery, Reconnaissance
+  --tactic-initial:     #8B5CF6    Purple — Initial Access, Execution
+  --tactic-cred:        #F59E0B    Amber — Credential Access, Privilege Esc
+  --tactic-lateral:     #EF4444    Red — Lateral Movement
+  --tactic-exfil:       #DC2626    Deep Red — Exfiltration, C2, Impact
+  --tactic-persist:     #10B981    Green — Persistence, Defence Evasion
+
+STATUS COLOURS:
+  --status-active:      #22C55E    System running, session active
+  --status-warning:     #F59E0B    Trigger approaching threshold
+  --status-critical:    #EF4444    APT-grade detected, exfil attempt
+  --status-inactive:    #475569    System idle
+
+NODE COLOURS (Network Graph):
+  --node-default:       #1E2030    Unprobed host
+  --node-probed:        #F59E0B    Host being actively probed (pulsing amber)
+  --node-accessed:      #EF4444    Host successfully accessed
+  --node-crown:         #FCD34D    Crown jewel node (new, materialised)
+  --node-dc:            #8B5CF6    Domain controller
+  --node-edge:          #252840    Graph edge default
+  --node-edge-active:   #F59E0B40  Lateral movement path (amber, low opacity)
+
+2.2 TYPOGRAPHY
+───────────────
+
+FONT FAMILIES:
+  Primary UI:       Inter (Google Fonts) — all body text, labels, headings
+  Terminal/Code:    JetBrains Mono — command feed, IP addresses, hashes,
+                    technique IDs, timestamps, all monospace content
+  Fallback:         system-ui, -apple-system, sans-serif
+
+FONT SCALE:
+  --text-xs:    11px / 1.4   Metadata, badges, timestamps
+  --text-sm:    13px / 1.5   Secondary labels, tooltips
+  --text-base:  15px / 1.6   Primary body text, card content
+  --text-lg:    18px / 1.4   Section headers, card titles
+  --text-xl:    22px / 1.3   Panel headers
+  --text-2xl:   28px / 1.2   Dashboard header, session title
+  --text-mono:  13px / 1.7   Terminal feed (JetBrains Mono)
+
+FONT WEIGHTS:
+  Regular:  400   Body text, secondary labels
+  Medium:   500   Card labels, navigation
+  SemiBold: 600   Panel headers, metric values
+  Bold:     700   Critical alerts, primary emphasis
+
+LETTER SPACING:
+  Headings:     -0.02em  (slightly tighter — premium feel)
+  Body:         0em
+  Labels/Caps:  +0.08em  (uppercase labels — slightly tracked)
+  Mono:         0em
+
+2.3 SPACING SYSTEM
+────────────────────
+Based on 4px base unit:
+
+  --space-1:   4px
+  --space-2:   8px
+  --space-3:   12px
+  --space-4:   16px
+  --space-5:   20px
+  --space-6:   24px
+  --space-8:   32px
+  --space-10:  40px
+  --space-12:  48px
+  --space-16:  64px
+
+Panel padding: --space-6 (24px)
+Card padding:  --space-5 (20px)
+Gap between panels: --space-4 (16px)
+Gap within panels:  --space-3 (12px)
+
+2.4 BORDER & RADIUS SYSTEM
+────────────────────────────
+  --border-color:     #1E2030
+  --border-accent:    #F59E0B30   (amber at 19% opacity)
+  --border-critical:  #EF444430   (red at 19% opacity)
+
+  --radius-sm:   4px    Badges, small chips
+  --radius-md:   8px    Cards, inputs
+  --radius-lg:   12px   Large panels
+  --radius-xl:   16px   Modal containers
+
+Panel borders: 1px solid var(--border-color)
+Active panel:  1px solid var(--border-accent) + box-shadow: 0 0 20px #F59E0B15
+
+2.5 SHADOW & GLOW SYSTEM
+──────────────────────────
+  --shadow-sm:      0 1px 3px rgba(0,0,0,0.4)
+  --shadow-md:      0 4px 12px rgba(0,0,0,0.5)
+  --shadow-lg:      0 8px 24px rgba(0,0,0,0.6)
+  --glow-amber:     0 0 20px rgba(245,158,11,0.25)
+  --glow-amber-lg:  0 0 40px rgba(245,158,11,0.15), 0 0 80px rgba(245,158,11,0.08)
+  --glow-red:       0 0 20px rgba(239,68,68,0.3)
+  --glow-node:      0 0 12px rgba(245,158,11,0.6)  (graph nodes when probed)
+
+2.6 ANIMATION TOKENS
+──────────────────────
+  --duration-instant:   100ms
+  --duration-fast:      200ms
+  --duration-normal:    300ms
+  --duration-slow:      500ms
+  --duration-reveal:    800ms
+
+  --ease-default:   cubic-bezier(0.4, 0, 0.2, 1)   (material standard)
+  --ease-out:       cubic-bezier(0.0, 0, 0.2, 1)   (decelerate)
+  --ease-in:        cubic-bezier(0.4, 0, 1, 1)     (accelerate)
+  --ease-spring:    cubic-bezier(0.34, 1.56, 0.64, 1) (slight overshoot)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3: LAYOUT ARCHITECTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+3.1 OVERALL LAYOUT
+────────────────────
+
+The dashboard is a single full-viewport page. No scrolling. No navigation.
+Everything a judge needs is visible simultaneously without interaction.
+
+VIEWPORT: 1920×1080 minimum (demo laptop should be set to this resolution)
+
+GRID STRUCTURE:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          HEADER BAR (56px)                                  │
+├──────────────────┬──────────────────────────────┬──────────────────────────┤
+│                  │                              │                          │
+│   LEFT PANEL     │      CENTRE PANEL            │    RIGHT PANEL           │
+│   (Command Feed) │      (Network Graph)         │    (Operator Profile)    │
+│   380px wide     │      FLEX (fills remaining)  │    360px wide            │
+│                  │                              │                          │
+│                  │                              │                          │
+│                  │                              │                          │
+├──────────────────┴──────────────────────────────┴──────────────────────────┤
+│                          BOTTOM BAR (80px)                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+CSS Grid implementation:
+  display: grid;
+  grid-template-rows: 56px 1fr 80px;
+  grid-template-columns: 380px 1fr 360px;
+  height: 100vh;
+  width: 100vw;
+  gap: 0;
+  background: var(--bg-void);
+
+3.2 HEADER BAR
+───────────────
+
+Height: 56px
+Background: var(--bg-surface)
+Border-bottom: 1px solid var(--bg-border)
+
+LEFT SECTION (240px):
+  - PHANTASM wordmark (Inter 700, 20px, var(--text-primary))
+  - Tagline below: "Cognitive Honeypot System" (11px, var(--text-muted),
+    tracking +0.08em, uppercase)
+  - A thin amber accent line (2px) on the left edge of the header
+
+CENTRE SECTION (flex):
+  - SESSION STATUS CHIP:
+    When active: green dot (6px, pulsing animation) + "SESSION ACTIVE"
+    text (Inter 500, 12px, var(--status-active), uppercase, tracked)
+    When idle: grey dot + "AWAITING CONNECTION"
+  - SESSION TIMER: large monospace display "00:47:23" (JetBrains Mono 700,
+    24px, var(--text-primary)) — counting up from session start
+  - Separator | — and to the right: "284 COMMANDS" (mono, amber)
+
+RIGHT SECTION (280px):
+  - ENGAGEMENT SCORE display: "2.3x" in large amber (JetBrains Mono 700,
+    28px, var(--amber-glow)) with label "vs. static baseline" below in muted
+  - SESSION CONTROLS: three icon buttons (24px each, 8px gap)
+    [▶ Start] [■ End Session] [⬇ Generate Dossier]
+    Buttons: amber border, transparent fill, amber icon
+    Active state: amber fill, dark icon
+    Each has a subtle glow on hover (--glow-amber)
+
+3.3 LEFT PANEL — COMMAND FEED
+───────────────────────────────
+
+Width: 380px
+Background: var(--bg-surface)
+Border-right: 1px solid var(--bg-border)
+Overflow: hidden (content scrolls internally)
+
+PANEL HEADER (48px):
+  Title: "LIVE COMMAND FEED" (Inter 600, 11px, uppercase, tracked,
+  var(--text-muted))
+  Right: badge showing count "284" in amber chip
+
+COMMAND FEED (scrollable, fills panel height):
+  Layout: vertical stack, newest commands at bottom, auto-scroll
+  Each command entry is a card (no border, subtle background on hover):
+
+  COMMAND ENTRY ANATOMY:
+  ┌────────────────────────────────────────────┐
+  │ 00:14:29  [T1078]  [CREDENTIAL ACCESS]     │
+  │ net user administrator /domain             │
+  └────────────────────────────────────────────┘
+
+  Timestamp: JetBrains Mono, 11px, var(--text-muted), top-left
+  ATT&CK ID badge: [T1078] — filled chip, 10px mono bold, colour based on
+  tactic category (see semantic colours), border-radius 3px
+  Tactic badge: [CREDENTIAL ACCESS] — outlined chip, same colour as ID badge
+  Command text: JetBrains Mono, 13px, var(--text-code), full width below
+  Entry padding: 10px 16px
+  Entry min-height: 56px
+  Hover background: var(--bg-elevated)
+
+  NEW ENTRY ANIMATION:
+  - Enters from bottom with transform: translateY(8px) → translateY(0)
+  - opacity: 0 → 1
+  - Duration: 200ms, ease-out
+  - Amber left border (2px) fades out over 2 seconds after entry appears
+    (draws attention to new command, then relaxes)
+
+  HIGH-SEVERITY ENTRY (Lateral Movement, Exfiltration):
+  - Background: rgba(239, 68, 68, 0.06)
+  - Left border: 2px solid var(--tactic-lateral) or var(--tactic-exfil)
+  - Stays highlighted (doesn't fade)
+
+  CONFIDENCE SCORE (below command text, right-aligned):
+  - "94% confidence" in 10px, var(--text-muted)
+
+PANEL FOOTER (36px):
+  Horizontal bar showing technique category distribution:
+  Recon: 28% | Cred: 22% | Lateral: 18% | Exfil: 12% | Other: 20%
+  Colour-coded bars using semantic colours, proportional widths
+
+3.4 CENTRE PANEL — NETWORK GRAPH
+──────────────────────────────────
+
+This is the visual centrepiece of the dashboard. It must be stunning.
+
+Background: var(--bg-void) — fullest black, makes nodes pop
+Border: none — seamless with header and bottom bar
+Padding: 24px
+
+GRAPH IMPLEMENTATION (D3.js v7 Force-Directed):
+
+NODE TYPES AND VISUAL TREATMENT:
+
+  Standard Host Node:
+  - Circle, radius: 20px
+  - Fill: var(--node-default) = #1E2030
+  - Stroke: 1.5px, var(--bg-border)
+  - Label: hostname below node, Inter 400, 10px, var(--text-muted)
+  - Label truncated to 20 chars if longer
+
+  Probed Host Node (active):
+  - Fill: var(--node-probed) = #F59E0B
+  - Stroke: 2px, var(--amber-pulse)
+  - Drop shadow: var(--glow-node)
+  - PULSE ANIMATION:
+    @keyframes nodePulse {
+      0%, 100% { r: 20; opacity: 1; }
+      50% { r: 26; opacity: 0.6; }
+    }
+    Duration: 1.5s, ease-in-out, infinite
+  - Secondary pulse ring: a circle growing from 20px to 50px radius,
+    opacity 0.4 → 0, duration 2s, infinite — creates ripple effect
+
+  Accessed Host Node:
+  - Fill: var(--node-accessed) = #EF4444
+  - Stroke: 2px, #DC2626
+  - Drop shadow: var(--glow-red)
+  - Small ⚠ icon overlaid at top-right of node
+
+  Crown Jewel Node (materialised by feedback loop):
+  - Fill: var(--node-crown) = #FCD34D
+  - Stroke: 2px, var(--amber-glow)
+  - MATERIALISATION ANIMATION:
+    @keyframes materialise {
+      0% { r: 0; opacity: 0; filter: blur(4px); }
+      60% { r: 24; opacity: 0.8; filter: blur(0px); }
+      80% { r: 18; opacity: 1; }
+      100% { r: 20; opacity: 1; }
+    }
+    Duration: 800ms, ease-spring
+  - Before appearing: a slow amber glow pulse at the node position for 1s,
+    then the materialise animation fires — creates "emergence from nothing"
+  - After appearing: continuous gentle amber glow (not full pulse)
+  - Small ★ icon overlaid at top-right — marks as crown jewel
+  - Label: amber colour, semibold, slightly larger (12px)
+
+  Domain Controller Node:
+  - Larger radius: 28px
+  - Fill: #1A1228 (deep purple-dark)
+  - Stroke: 2px, var(--node-dc)
+  - Icon: small "AD" text inside node circle
+
+EDGE (LINK) VISUAL TREATMENT:
+
+  Default Edge:
+  - Stroke: var(--node-edge) = #252840
+  - Stroke-width: 1px
+  - Opacity: 0.6
+
+  Active Lateral Movement Edge:
+  - Stroke: var(--amber-glow)
+  - Stroke-width: 2px
+  - Stroke-dasharray: 6, 3
+  - ANIMATION: stroke-dashoffset animates to create "marching ants" effect
+    showing directionality of lateral movement
+    @keyframes marchingAnts {
+      to { stroke-dashoffset: -18; }
+    }
+    Duration: 800ms, linear, infinite
+
+GRAPH BACKGROUND TREATMENT:
+  - Subtle hex grid pattern in SVG (very low opacity — 0.03 — just enough
+    to add depth without cluttering)
+  - Very faint radial gradient: slightly lighter at centre (#0C0D14 at 0%)
+    to void black at edges (#050508 at 100%)
+
+FORCE SIMULATION PARAMETERS:
+  d3.forceSimulation()
+    .force("link", d3.forceLink().distance(120).strength(0.8))
+    .force("charge", d3.forceManyBody().strength(-400))
+    .force("center", d3.forceCenter(width/2, height/2))
+    .force("collision", d3.forceCollide().radius(40))
+
+NODE LABEL POSITIONING:
+  Labels render below node with 8px gap. On hover, show full tooltip with:
+  - Full hostname
+  - IP address
+  - Declared OS
+  - Open services list
+  - Current status
+  Tooltip: var(--bg-elevated) background, 1px amber border, 8px radius,
+  12px padding, Inter 12px
+
+GRAPH CONTROLS (bottom-left of graph panel, icon buttons):
+  [+] Zoom in   [-] Zoom out   [⊕] Reset view   [⊡] Fit to screen
+  Small, unobtrusive, 20px icons, var(--text-muted) colour
+
+3.5 RIGHT PANEL — OPERATOR PROFILE
+────────────────────────────────────
+
+Width: 360px
+Background: var(--bg-surface)
+Border-left: 1px solid var(--bg-border)
+Overflow: hidden (internal scroll if needed)
+
+PANEL HEADER (48px):
+  Title: "OPERATOR PROFILE" (same style as command feed header)
+  Right: "APT-GRADE" badge (dynamic — updates with expertise level)
+  Badge colours:
+    Script Kiddie: blue background
+    Intermediate: yellow background
+    Advanced: orange background
+    APT-Grade: red background with glow
+
+SECTION 1 — EXPERTISE GAUGE (160px height):
+
+  Segmented arc gauge component:
+  - Full arc from 210° to 330° (150° total sweep)
+  - 4 segments: Script Kiddie | Intermediate | Advanced | APT-Grade
+  - Inactive segments: var(--bg-elevated) fill
+  - Active segments up to current level: filled with segment colour
+    (blue → yellow → orange → red)
+  - Needle: thin amber line pointing to current position
+  - Current level text: centre of arc, Inter 700, 18px, var(--text-primary)
+  - Confidence: below level text, 12px, var(--text-muted): "94% confidence"
+
+  UPDATE ANIMATION: When expertise level changes, needle sweeps smoothly
+  to new position. Active segments fill progressively. Duration: 600ms.
+  Never regresses during a session (visually locks to highest achieved).
+
+SECTION 2 — OBJECTIVE INFERENCE (140px height):
+
+  Horizontal bar chart, one bar per objective type.
+  Active objective has filled amber bar.
+  Others show low-opacity bars with their proportional score.
+
+  Layout per objective:
+  [Ransomware      ] ████░░░░░░░░ 23%
+  [Data Exfiltration] ████████████ 71%
+  [Espionage       ] ██░░░░░░░░░░ 18%
+  [Insider Threat  ] █░░░░░░░░░░░  8%
+
+  Active objective bar: amber fill (#F59E0B)
+  Bar height: 6px, border-radius 3px, background track: var(--bg-elevated)
+  Label: Inter 12px, var(--text-secondary), left-aligned
+  Score: JetBrains Mono 11px, var(--text-primary), right-aligned
+  Bars animate width on each update (duration 400ms, ease-out)
+
+SECTION 3 — OPERATIONAL STATE (80px height):
+
+  State icon + label + description layout:
+  Large state icon (32px) on left
+  State name: Inter 600, 16px
+  Description: Inter 400, 12px, var(--text-muted)
+  Timestamp: "since 00:31:14", 11px, var(--text-muted)
+
+  CALM/METHODICAL:  🎯 icon, --status-active colour
+  STRESSED/RUSHED:  ⚡ icon, --amber-glow colour, subtle pulse on icon
+  DISORIENTED:      ❓ icon, --text-secondary colour
+  AUTOMATED:        🤖 icon, --tactic-recon colour
+
+  STRESS EVENT CALLOUT (shown when stress onset detected):
+  Small amber alert box below state:
+  "Stress onset at 00:31:14 — command cadence +340%"
+  Background: rgba(245,158,11,0.1), border: 1px solid var(--amber-ghost)
+
+SECTION 4 — ATTRIBUTION RADAR (180px height):
+
+  D3 radar/spider chart showing top 5 APT group overlap scores.
+  Axis per group. Value = cosine similarity score (0.0–1.0).
+
+  Chart colours:
+  - Background polygon fills: rgba(245,158,11,0.05)
+  - Outer ring: var(--bg-border) at 60% opacity
+  - Data polygon: amber fill (rgba(245,158,11,0.2)), amber stroke 1.5px
+  - Axis lines: var(--bg-border)
+  - Axis labels: Inter 10px, var(--text-muted)
+
+  Top attribution listed below chart:
+  "APT-36 (61%)" — amber bold, "Pakistan-linked" in muted
+
+  HIGH ATTRIBUTION ALERT (>60% any group):
+  Red border appears around this entire section
+  Pulsing red dot in header
+  Text turns amber: "⚠ HIGH ATTRIBUTION CONFIDENCE"
+
+SECTION 5 — SESSION STATISTICS (bottom of right panel, 100px):
+
+  4-stat grid (2×2):
+  ┌─────────────────┬─────────────────┐
+  │  284            │  11             │
+  │  Commands       │  Techniques     │
+  ├─────────────────┼─────────────────┤
+  │  2.3x           │  00:47:23       │
+  │  Engagement     │  Dwell Time     │
+  └─────────────────┴─────────────────┘
+
+  Stat values: JetBrains Mono 700, 22px, var(--text-primary)
+  Stat labels: Inter 400, 11px, var(--text-muted), uppercase, tracked
+
+3.6 BOTTOM BAR — SESSION STATISTICS AND STRESS CHART
+──────────────────────────────────────────────────────
+
+Height: 80px
+Background: var(--bg-surface)
+Border-top: 1px solid var(--bg-border)
+Padding: 0 24px
+
+LAYOUT: Stress chart fills centre. Status indicators left and right.
+
+LEFT SECTION (180px):
+  "STRESS INDEX" label (11px, muted, uppercase)
+  Current ICI value: "2.1s avg" (JetBrains Mono 700, 18px, amber)
+  Below: trend arrow "↑ +340% from baseline" in red
+
+CENTRE SECTION (fills):
+  Live line chart (Recharts LineChart, no axes labels — just the shape):
+  - X: session time (auto-scaled)
+  - Y: inter-command interval in seconds (inverted — lower = more stressed)
+  - Line: var(--amber-glow), 1.5px stroke
+  - Fill below line: linear gradient amber to transparent (30% → 0%)
+  - Reference line (horizontal dashed): baseline ICI for this session
+  - Red zone below reference: rgba(239,68,68,0.1) fill — stress zone
+  - Chart updates every command, new point appears with smooth line extension
+  - Height: 52px (constrained by bottom bar)
+
+RIGHT SECTION (200px):
+  Row of IOC indicators:
+  "C2 IPs: 2" in red chip
+  "Payloads: 1" in orange chip
+  "Assets: 3" in amber chip
+  Each chip: [count] in JetBrains Mono 700, label in Inter 400, 11px
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4: COMPONENT SPECIFICATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4.1 ATT&CK TECHNIQUE BADGE COMPONENT
+──────────────────────────────────────
+
+Props: techniqueId, tacticName, confidence
+Variants: filled (primary badge) and outlined (secondary tactic label)
+
+FILLED BADGE:
+  Background: tactic colour at 20% opacity
+  Border: 1px solid tactic colour at 60% opacity
+  Text: tactic colour at 100%, JetBrains Mono 700, 10px, uppercase
+  Padding: 2px 6px
+  Border-radius: 3px
+  Example: [T1003] on amber-tinted chip background
+
+OUTLINED BADGE:
+  Background: transparent
+  Border: 1px solid tactic colour at 40%
+  Text: tactic colour at 80%
+  Same sizing as filled
+
+HOVER STATE:
+  Both variants: background opacity increases to 35%
+  Tooltip appears showing full technique name + description
+
+4.2 SESSION CONTROL BUTTONS
+─────────────────────────────
+
+Three buttons in header right section.
+
+BUTTON BASE STYLE:
+  Height: 32px
+  Padding: 0 14px
+  Border-radius: var(--radius-sm) = 4px
+  Font: Inter 500, 12px, uppercase, tracked 0.05em
+  Transition: all 200ms ease
+
+START SESSION BUTTON:
+  Background: transparent
+  Border: 1px solid var(--status-active)
+  Text: var(--status-active)
+  Icon: ▶ (16px)
+  Hover: background rgba(34,197,94,0.1)
+  Active: background rgba(34,197,94,0.2)
+
+END SESSION BUTTON:
+  Border: 1px solid var(--tactic-exfil)
+  Text: var(--tactic-exfil)
+  Icon: ■
+  Hover: background rgba(239,68,68,0.1)
+
+GENERATE DOSSIER BUTTON:
+  Border: 1px solid var(--amber-glow)
+  Text: var(--amber-glow)
+  Icon: ⬇
+  Active state (generating): spinning icon + "GENERATING..." text
+  Complete state: green border + "READY" text
+
+MANUAL TRIGGER BUTTONS (for demo failsafe — small, bottom of graph panel):
+  Small text buttons: "Force APT Trigger" | "Force Ransomware" | "End Session"
+  Style: var(--text-muted) text, no border, hover: var(--text-secondary)
+  Positioned bottom-left of graph, 10px font, clearly labelled "DEMO CONTROLS"
+  These are visible but unobtrusive — only used if automation fails
+
+4.3 NODE TOOLTIP COMPONENT
+────────────────────────────
+
+Appears on hover over any graph node.
+Position: follows cursor with 12px offset
+
+CONTAINER:
+  Background: var(--bg-elevated)
+  Border: 1px solid var(--border-accent)
+  Border-radius: var(--radius-md) = 8px
+  Padding: 12px 16px
+  Box-shadow: var(--shadow-md)
+  Max-width: 240px
+  Pointer-events: none
+
+CONTENT:
+  Hostname: Inter 600, 13px, var(--text-primary)
+  IP Address: JetBrains Mono 12px, var(--amber-dim)
+  Status chip: current state (probed/accessed/idle)
+  Services list: 11px, var(--text-secondary), bullet list
+  Last activity: "Last probed: 00:14:29", 11px, var(--text-muted)
+
+ANIMATION: opacity 0→1, scale 0.95→1, duration 150ms, ease-out
+
+4.4 DOSSIER READY NOTIFICATION
+────────────────────────────────
+
+When dossier generation completes, a notification slides in from bottom-right.
+
+CONTAINER:
+  Position: fixed, bottom: 24px, right: 24px
+  Background: var(--bg-elevated)
+  Border: 1px solid var(--status-active)
+  Border-radius: var(--radius-md)
+  Padding: 16px 20px
+  Box-shadow: var(--shadow-lg), 0 0 30px rgba(34,197,94,0.15)
+  Width: 320px
+
+CONTENT:
+  ✓ icon (green, 20px) + "DOSSIER GENERATED" title (Inter 600, 14px)
+  "APT-Grade session • 47 min 23 sec" subtitle (12px, muted)
+  [VIEW PDF] button (green border, full width, 32px)
+  [PRINT] secondary button
+
+ANIMATION:
+  Enters: translateX(360px) → translateX(0), 400ms, ease-spring
+  Auto-dismiss: fades out after 30 seconds (manual close available)
+
+4.5 SESSION START SEQUENCE
+────────────────────────────
+
+When session starts (first packet received), the dashboard "activates":
+
+SEQUENCE (orchestrated with Framer Motion):
+  0ms:    Header status chip animates from idle to active (colour + dot pulse)
+  100ms:  Session timer starts counting
+  200ms:  Command feed panel border gains amber accent glow
+  300ms:  Network graph fades up from 60% to 100% opacity
+  400ms:  "ShadowMesh nodes materialising" text briefly overlays graph
+          (JetBrains Mono, 13px, amber, centre-positioned, fades in 0.4s,
+           out 0.6s, then disappears)
+  600ms:  First wave of base topology nodes materialise with staggered
+          entrance animation (each node: 50ms delay after previous)
+  2000ms: All base nodes visible, system fully active
+
+4.6 CROWN JEWEL MATERIALISATION SEQUENCE
+──────────────────────────────────────────
+
+This is THE visual climax of the demo. It must be perfect.
+
+TRIGGER: Feedback controller fires APT-grade mutation directive.
+
+SEQUENCE:
+  T+0ms:    Soft amber glow appears at target position in graph
+             (a 6px circle, amber, 30% opacity, slowly pulsing)
+  T+500ms:  Glow intensifies, radius grows to 40px over 300ms
+  T+800ms:  Node materialises:
+             - Scale animation: 0 → 1.2 → 1.0 (--ease-spring, 600ms)
+             - Blur filter: blur(4px) → blur(0) concurrent with scale
+             - Opacity: 0 → 1
+  T+800ms:  Outer pulse ring fires (circle expanding 20px → 80px, opacity
+             0.6 → 0, duration 1s — single fire, not looping)
+  T+1400ms: Node label slides in from below (translateY(8px) → 0, 200ms)
+  T+1600ms: New edge connecting to parent subnet animates in
+             (stroke-dasharray trick: line draws from source to new node)
+  T+2000ms: "CROWN JEWEL MATERIALIZED" text appears briefly in graph
+             (amber, centre-top, fades in/out over 2s)
+  T+2000ms: Right panel profile section pulses amber briefly
+             indicating profile-triggered this mutation
+
+The entire sequence takes ~2 seconds and is unmissably dramatic.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 5: INTERACTION & REAL-TIME BEHAVIOUR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+5.1 WEBSOCKET DATA CONTRACT
+─────────────────────────────
+
+The frontend subscribes to these event types from the API server:
+
+EVENT: "command"
+  Payload: { id, timestamp, text, techniques: [{id, tactic, confidence}],
+             severity, ici_ms }
+  Action: Prepend to command feed with entrance animation.
+          Update stress chart with new ICI data point.
+
+EVENT: "profile_update"
+  Payload: { expertise: {level, confidence}, objective: {type, scores},
+             state: {type, onset_seconds}, attribution: [{group, score}],
+             stats: {commands, techniques, dwell, engagement} }
+  Action: Animate all profile card components to new values.
+          Update header engagement score and command count.
+
+EVENT: "topology_update"
+  Payload: { action: "add_node", node: {id, hostname, ip, role, services},
+             edges: [{source, target}], trigger: "apt_crown_jewel" }
+  Action: Execute crown jewel materialisation sequence.
+          Add node and edges to D3 simulation.
+
+EVENT: "ioc_detected"
+  Payload: { type: "c2_ip"|"payload"|"domain", value, timestamp }
+  Action: Update IOC counters in bottom bar.
+          Brief red flash on bottom bar IOC section.
+
+EVENT: "session_end"
+  Payload: { reason: "disconnect"|"timeout"|"manual", duration, summary }
+  Action: Stop session timer. Trigger dossier generation animation.
+
+EVENT: "dossier_ready"
+  Payload: { path, session_id, generation_time_ms }
+  Action: Show dossier notification. Enable download button.
+
+5.2 WEBSOCKET RECONNECTION BEHAVIOUR
+──────────────────────────────────────
+
+If WebSocket disconnects:
+  - Show a subtle "RECONNECTING..." chip in header (no disruptive modal)
+  - Attempt reconnection every 1s for first 5 attempts
+  - Every 3s for next 10 attempts
+  - After 15 failed attempts: show "CONNECTION LOST" chip, stop retrying
+  - All data already received remains visible — no data loss on disconnect
+
+5.3 GRAPH INTERACTION
+──────────────────────
+
+Zoom/Pan: D3 zoom behaviour on the graph SVG
+  - Scroll to zoom (range: 0.3x to 3x)
+  - Click+drag to pan
+  - Double-click node: pins that node, stopping its force simulation movement
+  - Right-click node: context menu with "Show details" | "Pin" | "Unpin"
+
+Node Click: Opens a side drawer (240px) sliding in from the right within
+the graph panel showing full node details without leaving the dashboard.
+Drawer close: click outside or press Escape.
+
+5.4 RESPONSIVE BEHAVIOUR
+──────────────────────────
+
+Target viewport: 1920×1080 (primary) and 1440×900 (secondary)
+
+At 1440×900:
+  Left panel: 340px
+  Right panel: 320px
+  Graph fills remaining
+  Bottom bar: 72px
+
+At narrower than 1280px:
+  Show "OPTIMISED FOR 1440px+" banner
+  Dashboard still functional but layout may clip
+  (Hackathon will always use appropriate display — this is a safety note)
+
+5.5 PERFORMANCE REQUIREMENTS
+──────────────────────────────
+
+  - Initial page load: <2 seconds on localhost
+  - D3 graph re-render on topology update: <16ms (60fps)
+  - WebSocket message to DOM update: <100ms
+  - Profile card animation: 60fps sustained during update
+  - Memory: no memory leaks over 30-minute session (test with Chrome DevTools)
+  - Command feed: virtualise rendering if >500 commands (use react-window)
+    to prevent DOM bloat during long sessions
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6: IMPLEMENTATION GUIDE FOR MEMBER 5
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+6.1 RECOMMENDED FILE STRUCTURE
+────────────────────────────────
+
+  src/
+  ├── components/
+  │   ├── Header/
+  │   │   ├── Header.jsx
+  │   │   └── SessionControls.jsx
+  │   ├── CommandFeed/
+  │   │   ├── CommandFeed.jsx
+  │   │   ├── CommandEntry.jsx
+  │   │   └── TechniqueBadge.jsx
+  │   ├── NetworkGraph/
+  │   │   ├── NetworkGraph.jsx       ← D3 lives here
+  │   │   ├── useGraphSimulation.js  ← D3 force simulation hook
+  │   │   ├── NodeTooltip.jsx
+  │   │   └── graphAnimations.js    ← Crown jewel sequence
+  │   ├── OperatorProfile/
+  │   │   ├── OperatorProfile.jsx
+  │   │   ├── ExpertiseGauge.jsx    ← Arc gauge component
+  │   │   ├── ObjectiveBars.jsx
+  │   │   ├── StateIndicator.jsx
+  │   │   └── AttributionRadar.jsx  ← D3 radar chart
+  │   ├── BottomBar/
+  │   │   ├── BottomBar.jsx
+  │   │   └── StressChart.jsx       ← Recharts live line
+  │   └── shared/
+  │       ├── DossierNotification.jsx
+  │       └── StatusChip.jsx
+  ├── hooks/
+  │   ├── useWebSocket.js
+  │   ├── useSessionState.js
+  │   └── useProfileHistory.js
+  ├── store/
+  │   └── sessionStore.js           ← Zustand or useReducer
+  ├── styles/
+  │   └── tokens.css               ← All CSS variables defined here
+  ├── utils/
+  │   ├── attackColors.js          ← Tactic → colour mapping
+  │   └── formatters.js            ← Time, confidence formatters
+  └── App.jsx
+
+6.2 D3 + REACT INTEGRATION PATTERN
+─────────────────────────────────────
+
+Do NOT use React state to manage D3. Let D3 own the DOM inside the SVG.
+Use a useRef to hold the SVG element. Use useEffect to initialise the
+D3 simulation. Pass new data to D3 via a ref-based update function, not
+by re-rendering React. This is the only way to achieve 60fps updates.
+
+  // NetworkGraph.jsx — correct pattern
+  const svgRef = useRef(null);
+  const simulationRef = useRef(null);
+
+  useEffect(() => {
+    // Initialise D3 once on mount
+    simulationRef.current = d3.forceSimulation()
+      .force("link", d3.forceLink().distance(120))
+      .force("charge", d3.forceManyBody().strength(-400))
+      .force("center", d3.forceCenter(width/2, height/2));
+
+    // Set up SVG elements once
+    const svg = d3.select(svgRef.current);
+    // ... initial render
+  }, []);
+
+  // When new topology data arrives via WebSocket:
+  const addNode = useCallback((newNode) => {
+    // Directly mutate D3's data and restart simulation
+    // Trigger crown jewel animation sequence
+    // Do NOT setState here - D3 handles the DOM
+  }, []);
+
+6.3 PRIORITY ORDER FOR IMPLEMENTATION
+────────────────────────────────────────
+
+Hours 4–8 (Foundation):
+  Priority 1: WebSocket connection working, receiving test events
+  Priority 2: Basic layout grid with correct dimensions
+  Priority 3: Command feed rendering with badge colours (no animation yet)
+  Priority 4: D3 graph scaffold with test nodes visible
+
+Hours 8–14 (Core Features):
+  Priority 1: D3 graph — probe/access states and pulse animation
+  Priority 2: D3 graph — new node materialisation (simplified first)
+  Priority 3: Profile card — expertise gauge and objective bars updating
+  Priority 4: Stress chart — Recharts live line chart
+
+Hours 14–18 (Polish):
+  Priority 1: Crown jewel materialisation full sequence
+  Priority 2: Session activation sequence
+  Priority 3: All animation timings refined
+  Priority 4: Dossier notification
+
+Hours 18–20 (Final Polish):
+  Priority 1: Typography and colour token consistency check
+  Priority 2: Header stat updates
+  Priority 3: Hover states and tooltips
+  Priority 4: Manual demo control buttons (failsafe)
+
+HARD RULE: If you are running out of time, CUT ANIMATIONS before cutting
+functionality. A static but correct dashboard beats a crashing animated one.
+Implement: graph updates → profile updates → command feed → stress chart.
+Animate: crown jewel → session start → entry animations → everything else.
+
+6.4 CSS CUSTOM PROPERTIES SETUP
+──────────────────────────────────
+
+All tokens in src/styles/tokens.css:
+
+  :root {
+    /* Backgrounds */
+    --bg-void: #050508;
+    --bg-surface: #0C0D14;
+    --bg-elevated: #12141F;
+    --bg-border: #1E2030;
+    --bg-subtle: #252840;
+
+    /* Amber */
+    --amber-glow: #F59E0B;
+    --amber-dim: #B45309;
+    --amber-ghost: rgba(245,158,11,0.2);
+    --amber-pulse: #FCD34D;
+
+    /* Text */
+    --text-primary: #F1F5F9;
+    --text-secondary: #94A3B8;
+    --text-muted: #475569;
+    --text-code: #E2E8F0;
+
+    /* Tactics */
+    --tactic-recon: #3B82F6;
+    --tactic-initial: #8B5CF6;
+    --tactic-cred: #F59E0B;
+    --tactic-lateral: #EF4444;
+    --tactic-exfil: #DC2626;
+    --tactic-persist: #10B981;
+
+    /* Status */
+    --status-active: #22C55E;
+    --status-warning: #F59E0B;
+    --status-critical: #EF4444;
+
+    /* Shadows */
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+    --glow-amber: 0 0 20px rgba(245,158,11,0.25);
+    --glow-node: 0 0 12px rgba(245,158,11,0.6);
+    --glow-red: 0 0 20px rgba(239,68,68,0.3);
+
+    /* Spacing */
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+
+    /* Radius */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+  }
+
+Import tokens.css in main.jsx before any component styles.
+Use CSS custom properties everywhere — never hardcode hex values in
+component styles. This makes global theme changes a single-file edit.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7: DOSSIER PDF DESIGN SPECIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The PDF is a physical prop handed to the judge. It must look
+institutional-grade. Not a printed webpage — a professional document.
+
+PAGE SETTINGS:
+  Size: A4 (210×297mm)
+  Margins: 20mm top/bottom, 18mm left/right
+  Columns: Single
+  Font: Inter (embed) for body, JetBrains Mono for code/data
+
+HEADER (first page only):
+  Left: "PHANTASM" wordmark (bold, 20pt) with tagline
+  Right: "CONFIDENTIAL" stamp (red, 10pt, uppercase, tracked)
+        "SESSION ID: PH-2026-0847-APT" (mono, 9pt)
+  Horizontal rule below: 2pt amber line full width
+
+SECTION HEADERS:
+  Background: #1E2030 (the dark grey matching UI)
+  Text: white, Inter 600, 10pt, uppercase, tracked
+  Padding: 4pt 8pt
+  No border
+
+BODY TEXT:
+  Inter 400, 10pt, #1a1a2e (near-black for print)
+  Line height: 1.6
+
+DATA TABLES:
+  Header row: #F59E0B background (amber), white text, bold
+  Alternating rows: white and #F8F9FA
+  Cell padding: 5pt 8pt
+  Border: 0.5pt #dee2e6
+
+TECHNIQUE TABLE (most important table in document):
+  Columns: Technique ID | Name | Tactic | First Observed | Count
+  ATT&CK ID column: amber text, monospace
+
+IOC BOX:
+  Full-width box with red left border (3pt)
+  Background: #FFF5F5
+  Title: "INDICATORS OF COMPROMISE" (red, bold)
+  IPs in monospace
+
+NARRATIVE SECTION:
+  Italic, 10pt, justified
+  Left border: 2pt amber accent line
+  Background: #FFFBF0 (very light amber tint)
+  Label above: "ANALYST ASSESSMENT" in small caps
+
+FOOTER (every page):
+  Left: "PHANTASM — COGNITIVE HONEYPOT SYSTEM"
+  Centre: Page X of Y
+  Right: "CERT-In MIS Format • CONFIDENTIAL"
+  Separator: 0.5pt grey line above footer
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 8: ACCESSIBILITY AND QUALITY STANDARDS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TEXT CONTRAST:
+  All body text on surface backgrounds: minimum 4.5:1 contrast ratio (WCAG AA)
+  var(--text-primary) #F1F5F9 on var(--bg-surface) #0C0D14: 14.1:1 ✓
+  var(--text-secondary) #94A3B8 on var(--bg-surface): 7.2:1 ✓
+  var(--text-muted) #475569 on var(--bg-surface): 4.6:1 ✓ (just passes)
+  var(--amber-glow) #F59E0B on var(--bg-surface): 8.7:1 ✓
+
+MOTION PREFERENCES:
+  Wrap all Framer Motion animations in:
+  @media (prefers-reduced-motion: reduce) { animation-duration: 0.01ms; }
+  Not critical for hackathon demo but shows quality.
+
+COLOUR NOT SOLE INDICATOR:
+  ATT&CK severity must show both colour AND text badge — never colour alone.
+  Status indicators use both colour AND icon.
+
+KEYBOARD ACCESSIBILITY:
+  Session control buttons must be keyboard-focusable.
+  Focus ring: 2px solid var(--amber-glow), offset 2px.
+  Not critical for demo but implement as default React behaviour.
+
+CODE QUALITY STANDARDS:
+  - No console.warn or console.error in production build
+  - No unused imports
+  - All WebSocket event handlers have error boundaries
+  - D3 simulation cleanup in useEffect return function (prevent memory leak)
+  - Recharts responsive container used (handles resize)
+
+================================================================================
+              PHANTASM UI/UX DESIGN REQUIREMENTS v1.0
+           "Every pixel is intelligence. Every animation is intent."
+     SIH 2026 | VIT Vellore | Frontend Engineering Specification
+================================================================================
