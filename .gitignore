@@ -1,3 +1,21 @@
+# Environment files & Secrets
+.env
+*.env
+backend/.env
+
+# Node & Vite build caches
+node_modules/
+.vite/
+frontend/node_modules/
+dist/
+
+# Database & Data files
+data/
+*.db
+*.rdb
+*.sqlite
+*.sqlite3
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -17,6 +35,6 @@ backend/models/distilbert_expertise/*
 !backend/models/distilbert_expertise/train.py
 backend/models/bert_attack/*
 
-# Ignore cached downloads but keep the model directories empty (or with placeholder code)
+# Ignore cached downloads but keep the model directories empty
 backend/output/*
 !backend/output/.keep

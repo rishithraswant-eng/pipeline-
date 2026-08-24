@@ -4,8 +4,15 @@ import redis.asyncio as redis
 import aiosqlite
 import os
 
+from pathlib import Path
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).parent.parent / '.env')
+
+import socketio
+from fastapi.responses import FileResponse
+
+sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
+sio_app = socketio.ASGIApp(sio)
 
 from db.migrations import run_migrations
 from shadowmesh.core import ShadowMeshCore
@@ -63,6 +70,19 @@ async def lifespan(app: FastAPI):
         await shadowmesh_engine.stop()
 
 app = FastAPI(title="PHANTASM API", lifespan=lifespan)
+combined_app = socketio.ASGIApp(sio, other_asgi_app=app)
+
+@sio.event
+async def connect(sid, environ):
+    init_state = {
+        "topology": topology_generator.get_topology() if topology_generator else {"nodes": [], "edges": [], "subnets": []},
+        "system_status": {
+            "shadowmesh": "online" if shadowmesh_engine and shadowmesh_engine.running else "offline",
+            "mirrortrap": "online" if profile_engine else "offline",
+            "redis": "online"
+        }
+    }
+    await sio.emit('init_state', init_state, room=sid)
 
 @app.get("/api/health")
 async def health_check(response: Response):
@@ -150,6 +170,7 @@ async def start_session():
         await db.commit()
         
     session_manager.create_session(session_id)
+    await sio.emit('session_started', {'session_id': session_id, 'created_at': ts})
     return {"session_id": session_id, "status": "started"}
 
 @app.post("/api/session/command")
@@ -172,6 +193,28 @@ async def process_session_command(req: SessionCommandRequest):
     }
     
     profile_update = await profile_engine.process_command(req.session_id, command_event)
+    
+    await sio.emit('command_received', {
+        'session_id': req.session_id,
+        'command_seq': len(cmds) + 1,
+        'raw_command': req.raw_command,
+        'technique_ids': profile_update.get('unique_techniques', []),
+        'expertise_level': profile_update.get('expertise_level', 'Unknown'),
+        'timestamp_ms': req.timestamp_ms
+    })
+    
+    unique_techs = profile_update.get('unique_techniques', [])
+    await sio.emit('profile_updated', {
+        'session_id': req.session_id,
+        'expertise_level': profile_update.get('expertise_level', 'Script Kiddie'),
+        'expertise_confidence': profile_update.get('expertise_confidence', 0),
+        'primary_objective': profile_update.get('primary_objective', 'unknown'),
+        'operational_state': profile_update.get('operational_state', 'calm'),
+        'engagement_score': profile_update.get('engagement_score', 0),
+        'unique_techniques': len(unique_techs) if isinstance(unique_techs, list) else unique_techs,
+        'ici_ms': max(0, ici_ms)
+    })
+
     return profile_update
 
 @app.get("/api/session/{session_id}/profile")
@@ -202,5 +245,42 @@ async def get_session_dossier(session_id: str):
             await db.commit()
             
     dossier = await dossier_generator.generate_dossier(session_id)
+    
+    await sio.emit('dossier_ready', {
+        'session_id': session_id,
+        'narrative': dossier.get('narrative', ''),
+        'pdf_path': dossier.get('pdf_path', ''),
+        'expertise': dossier.get('expertise', {}),
+        'objective': dossier.get('objective', {})
+    })
+    
     return dossier
+
+@app.get("/api/session/{session_id}/dossier/pdf")
+async def get_session_dossier_pdf(session_id: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT pdf_path FROM dossiers WHERE session_id_ref = ? ORDER BY dossier_pk DESC LIMIT 1",
+            (session_id,)
+        )
+        row = await cursor.fetchone()
+    if row and row[0] and os.path.exists(row[0]):
+        return FileResponse(row[0], media_type='application/pdf', filename=f"dossier_{session_id}.pdf")
+    
+    # Fallback check output directory on disk
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    output_pdf = os.path.join(project_root, "backend", "output", f"{session_id}_dossier.pdf")
+    if os.path.exists(output_pdf):
+        return FileResponse(output_pdf, media_type='application/pdf', filename=f"dossier_{session_id}.pdf")
+        
+    # If not generated yet, attempt generating on the fly
+    if dossier_generator:
+        try:
+            dossier = await dossier_generator.generate_dossier(session_id)
+            if dossier.get("pdf_path") and os.path.exists(dossier["pdf_path"]):
+                return FileResponse(dossier["pdf_path"], media_type='application/pdf', filename=f"dossier_{session_id}.pdf")
+        except Exception as e:
+            pass
+            
+    return Response(status_code=404)
 

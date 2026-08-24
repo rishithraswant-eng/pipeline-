@@ -1,32 +1,96 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import TopBar from './components/TopBar';
+import CommandFeed from './components/CommandFeed';
+import NetworkGraph from './components/NetworkGraph';
+import OperatorProfile from './components/OperatorProfile';
+import StatusBar from './components/StatusBar';
+import DossierModal from './components/DossierModal';
+import { connectSocket, disconnectSocket } from './services/socket';
 
 function App() {
+  useEffect(() => {
+    connectSocket();
+    return () => {
+      disconnectSocket();
+    };
+  }, []);
+
   return (
-    <div style={{ display: 'grid', gridTemplateRows: '56px 1fr 80px', gridTemplateColumns: '380px 1fr 360px', height: '100vh', width: '100vw', background: 'var(--bg-void)', gap: '0' }}>
-      {/* Header Bar */}
-      <div style={{ gridColumn: '1 / 4', background: 'var(--bg-surface)', borderBottom: '1px solid var(--bg-border)', display: 'flex', alignItems: 'center', padding: '0 24px' }}>
-        <h1 style={{ fontSize: 'var(--text-lg)', margin: 0 }}>PHANTASM</h1>
+    <div style={{ 
+      display: 'flex', 
+      flexDirection: 'column', 
+      height: '100vh', 
+      width: '100vw', 
+      background: 'linear-gradient(135deg, #DDE4F5 0%, #EEF1FB 60%, #F5F0FC 100%)', 
+      overflow: 'hidden',
+      position: 'relative'
+    }}>
+      <TopBar />
+
+      {/* Main Viewport Container */}
+      <div style={{ 
+        flex: 1, 
+        position: 'relative', 
+        display: 'flex', 
+        overflow: 'hidden',
+        padding: '12px 16px',
+        gap: '16px'
+      }}>
+        {/* Background Network Graph Layer */}
+        <div style={{ 
+          position: 'absolute', 
+          top: 0, 
+          left: 0, 
+          right: 0, 
+          bottom: 0, 
+          zIndex: 1 
+        }}>
+          <NetworkGraph />
+        </div>
+
+        {/* Floating Glassmorphism Left Panel (Command Feed) */}
+        <div style={{ 
+          width: '380px', 
+          zIndex: 2, 
+          background: 'rgba(255, 255, 255, 0.68)', 
+          backdropFilter: 'blur(20px) saturate(180%)', 
+          WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+          borderRadius: '16px', 
+          border: '1px solid rgba(255, 255, 255, 0.85)', 
+          boxShadow: '0 20px 40px -15px rgba(0, 9, 30, 0.08), 0 0 0 1px rgba(226, 232, 240, 0.6)', 
+          padding: '20px', 
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden'
+        }}>
+          <CommandFeed />
+        </div>
+
+        {/* Transparent Center Area for Interactive Network Graph */}
+        <div style={{ flex: 1, zIndex: 2, pointerEvents: 'none' }} />
+
+        {/* Floating Glassmorphism Right Panel (Operator Profile) */}
+        <div style={{ 
+          width: '360px', 
+          zIndex: 2, 
+          background: 'rgba(255, 255, 255, 0.68)', 
+          backdropFilter: 'blur(20px) saturate(180%)', 
+          WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+          borderRadius: '16px', 
+          border: '1px solid rgba(255, 255, 255, 0.85)', 
+          boxShadow: '0 20px 40px -15px rgba(0, 9, 30, 0.08), 0 0 0 1px rgba(226, 232, 240, 0.6)', 
+          padding: '20px', 
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden'
+        }}>
+          <OperatorProfile />
+        </div>
       </div>
 
-      {/* Left Panel */}
-      <div style={{ background: 'var(--bg-surface)', borderRight: '1px solid var(--bg-border)', padding: 'var(--space-6)' }}>
-        <h2>Command Feed</h2>
-      </div>
-
-      {/* Center Panel */}
-      <div style={{ padding: 'var(--space-6)' }}>
-        <h2>Network Graph</h2>
-      </div>
-
-      {/* Right Panel */}
-      <div style={{ background: 'var(--bg-surface)', borderLeft: '1px solid var(--bg-border)', padding: 'var(--space-6)' }}>
-        <h2>Operator Profile</h2>
-      </div>
-
-      {/* Bottom Bar */}
-      <div style={{ gridColumn: '1 / 4', background: 'var(--bg-surface)', borderTop: '1px solid var(--bg-border)', display: 'flex', alignItems: 'center', padding: '0 24px' }}>
-        <span>Status</span>
-      </div>
+      <StatusBar />
+      
+      <DossierModal />
     </div>
   )
 }

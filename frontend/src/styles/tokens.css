@@ -1,23 +1,28 @@
 :root {
-  /* BACKGROUND SYSTEM */
-  --bg-void: #050508;
-  --bg-surface: #0C0D14;
-  --bg-elevated: #12141F;
-  --bg-border: #1E2030;
-  --bg-subtle: #252840;
+  /* BACKGROUND SYSTEM (Light Theme) */
+  --bg-void: #F8FAFC;       /* Slate 50 - Inner cards & main bg */
+  --bg-surface: #FFFFFF;    /* White - Panels & bars */
+  --bg-elevated: #FFFFFF;
+  --bg-border: #E2E8F0;     /* Slate 200 */
+  --bg-subtle: #F1F5F9;
 
-  /* AMBER ACCENT SYSTEM */
-  --amber-glow: #F59E0B;
-  --amber-dim: #B45309;
-  --amber-ghost: #78350F;
-  --amber-pulse: #FCD34D;
+  /* AMBER ACCENT SYSTEM (Unused but kept for structure) */
+  --amber-glow: #D97706;
+  --amber-dim: #F59E0B;
+  --amber-ghost: #FEF3C7;
+  --amber-pulse: #B45309;
 
   /* TEXT SYSTEM */
-  --text-primary: #F1F5F9;
-  --text-secondary: #94A3B8;
-  --text-muted: #475569;
-  --text-code: #E2E8F0;
-  --text-amber: #FCD34D;
+  --text-primary: #0F172A;  /* Slate 900 - Headings & main values */
+  --text-secondary: #334155;/* Slate 700 - Commands */
+  --text-muted: #64748B;    /* Slate 500 - Labels */
+  --text-code: #334155;
+  --text-amber: #D97706;
+
+  /* SPECIFIC ACCENTS FOR THIS THEME */
+  --accent-blue: #3B82F6;
+  --bg-blue-light: #EFF6FF; /* Blue 50 */
+  --border-blue-light: #BFDBFE; /* Blue 200 */
 
   /* SEMANTIC COLOUR SYSTEM */
   --tactic-recon: #3B82F6;
@@ -31,16 +36,16 @@
   --status-active: #22C55E;
   --status-warning: #F59E0B;
   --status-critical: #EF4444;
-  --status-inactive: #475569;
+  --status-inactive: #64748B;
 
-  /* NODE COLOURS */
-  --node-default: #1E2030;
-  --node-probed: #F59E0B;
-  --node-accessed: #EF4444;
-  --node-crown: #FCD34D;
-  --node-dc: #8B5CF6;
-  --node-edge: #252840;
-  --node-edge-active: #F59E0B40;
+  /* NODE COLOURS (Light Theme) */
+  --node-default: #94A3B8;    /* Slate 400 */
+  --node-probed: #94A3B8;     
+  --node-accessed: #94A3B8;   
+  --node-crown: #3B82F6;      
+  --node-dc: #8B5CF6;         /* Violet 500 */
+  --node-edge: #E2E8F0;       
+  --node-edge-active: #BFDBFE;
 
   /* FONT FAMILIES */
   --font-primary: 'Inter', system-ui, -apple-system, sans-serif;
@@ -83,19 +88,19 @@
   --space-16: 64px;
 
   /* BORDER & RADIUS SYSTEM */
-  --border-color: #1E2030;
-  --border-accent: #F59E0B30;
-  --border-critical: #EF444430;
+  --border-color: #E2E8F0;    /* Slate 200 */
+  --border-accent: #F59E0B20;
+  --border-critical: #EF444420;
 
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
 
-  /* SHADOW & GLOW SYSTEM */
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
-  --shadow-lg: 0 8px 24px rgba(0,0,0,0.6);
+  /* SHADOW & GLOW SYSTEM (Light Theme) */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1);
   --glow-amber: 0 0 20px rgba(245,158,11,0.25);
   --glow-amber-lg: 0 0 40px rgba(245,158,11,0.15), 0 0 80px rgba(245,158,11,0.08);
   --glow-red: 0 0 20px rgba(239,68,68,0.3);
